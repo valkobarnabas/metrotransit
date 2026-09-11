@@ -227,16 +227,30 @@ goEl.addEventListener("click", generate);
 document.getElementById("save").addEventListener("click", download);
 document.getElementById("open").addEventListener("click", openTab);
 
+async function loadPack() {
+  const res = await fetch("data/pack.json.gz");
+  if (!res.ok) throw new Error("Stop data missing. Run node github/build-data.js");
+  const bytes = new Uint8Array(await res.arrayBuffer());
+  const gzip = bytes.length > 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
+  let text;
+  if (gzip) {
+    if (typeof DecompressionStream !== "function") {
+      throw new Error("This browser cannot decode the timetable file.");
+    }
+    const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+    text = await new Response(stream).text();
+  } else {
+    text = new TextDecoder().decode(bytes);
+  }
+  const data = JSON.parse(text);
+  stops = data.stops || [];
+  byCode = data.byCode || {};
+}
+
 qEl.disabled = true;
 showErr("Loading timetables…");
-fetch("data/pack.json")
-  .then((r) => {
-    if (!r.ok) throw new Error("Stop data missing. Run node github/build-data.js");
-    return r.json();
-  })
-  .then((data) => {
-    stops = data.stops || [];
-    byCode = data.byCode || {};
+loadPack()
+  .then(() => {
     qEl.disabled = false;
     showErr("");
     qEl.focus();

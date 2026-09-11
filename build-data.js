@@ -4,6 +4,7 @@
  */
 const fs = require("fs");
 const path = require("path");
+const zlib = require("zlib");
 const {
   loadGtfs,
   collectPosterData,
@@ -125,10 +126,13 @@ function main() {
   }
 
   index.sort((a, b) => a.name.localeCompare(b.name) || a.code.localeCompare(b.code));
-  const outPath = path.join(dataDir, "pack.json");
-  fs.writeFileSync(outPath, JSON.stringify({ stops: index, byCode }));
-  const mb = (fs.statSync(outPath).size / 1e6).toFixed(1);
-  console.log(`Wrote ${index.length} stops to github/data/pack.json (${mb} MB)`);
+  const rawPath = path.join(dataDir, "pack.json");
+  const gzPath = path.join(dataDir, "pack.json.gz");
+  const raw = Buffer.from(JSON.stringify({ stops: index, byCode }));
+  fs.writeFileSync(gzPath, zlib.gzipSync(raw, { level: 9 }));
+  if (fs.existsSync(rawPath)) fs.unlinkSync(rawPath);
+  const mb = (fs.statSync(gzPath).size / 1e6).toFixed(2);
+  console.log(`Wrote ${index.length} stops to github/data/pack.json.gz (${mb} MB)`);
 }
 
 main();
