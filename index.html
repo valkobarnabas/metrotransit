@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Metro stop posters</title>
+  <link rel="icon" type="image/png" href="data/metrologo-mark.png" />
+  <link rel="shortcut icon" type="image/png" href="data/metrologo-mark.png" />
+  <link rel="apple-touch-icon" href="data/metrologo-mark.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <main class="box">
+    <h1>Stop poster</h1>
+    <p class="lead">Enter a stop number or search by name.</p>
+
+    <label class="field">
+      <span>Stop</span>
+      <input id="q" type="search" autocomplete="off" placeholder="0010 or Langdon at N Park" />
+    </label>
+    <div id="results" class="results" hidden></div>
+
+    <section id="picked" class="picked" hidden>
+      <div class="picked-name" id="picked-name"></div>
+      <div class="picked-meta" id="picked-meta"></div>
+
+      <div class="row">
+        <label class="check"><input type="checkbox" id="all" checked /> All routes</label>
+        <label class="check"><input type="checkbox" id="noschool" checked /> Exclude school extras</label>
+      </div>
+      <div id="routes" class="routes"></div>
+
+      <button type="button" id="go">Generate poster</button>
+    </section>
+    <p id="err" class="err" hidden></p>
+  </main>
+
+  <section id="out" class="out" hidden>
+    <div class="out-bar">
+      <button type="button" id="open">Open</button>
+      <button type="button" id="save">Download HTML</button>
+    </div>
+    <iframe id="preview" title="Poster preview"></iframe>
+  </section>
+
+  <script src="generate_poster.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
