@@ -173,27 +173,45 @@ function spanLabel(deps) {
   return a === b ? a : `${a}–${b}`;
 }
 
+function columnDayLabel(col) {
+  if (col.key === "weekday") return "Monday–Friday";
+  if (col.key === "weekend") return "Saturday–Sunday";
+  if (col.key === "frisat") return "Friday–Saturday";
+  if (col.key === "mt") return "Monday–Thursday";
+  if (col.key === "sunthu") return "Sunday–Thursday";
+  if (col.key === "friday") return "Fridays";
+  if (col.key === "saturday") return "Saturdays";
+  if (col.key === "sunday") return "Sundays";
+  return col.label;
+}
+
 function serviceCaption(direction, columns) {
   const parts = columns
     .map((col) => {
       const span = spanLabel(col.deps);
       if (!span) return "";
-      if (col.key === "weekday") return `Monday–Friday ${span}`;
-      if (col.key === "weekend") return `Saturday–Sunday ${span}`;
-      if (col.key === "frisat") return `Friday–Saturday ${span}`;
-      if (col.key === "mt") return `Monday–Thursday ${span}`;
-      if (col.key === "sunthu") return `Sunday–Thursday ${span}`;
-      if (col.key === "friday") return `Fridays ${span}`;
-      if (col.key === "saturday") return `Saturdays ${span}`;
-      if (col.key === "sunday") return `Sundays ${span}`;
-      return `${col.label} ${span}`;
+      return `${columnDayLabel(col)} ${span}`;
     })
     .filter(Boolean);
   const body = parts.join(", ");
-  if (direction && body) return `(${direction}, ${body})`;
-  if (body) return `(${body})`;
-  if (direction) return `(${direction})`;
+  if (direction && body) return `${direction}, ${body}`;
+  if (body) return body;
+  if (direction) return direction;
   return "";
+}
+
+function serviceCaptionHtml(direction, columns) {
+  const parts = columns
+    .map((col) => {
+      const hours = spanLabel(col.deps);
+      if (!hours) return "";
+      return `<span class="days">${escapeHtml(columnDayLabel(col))}</span> <span class="hours">${escapeHtml(hours)}</span>`;
+    })
+    .filter(Boolean);
+  const body = parts.join(", ");
+  const dir = direction ? `<span class="dir">${escapeHtml(direction)}</span>` : "";
+  if (dir && body) return `${dir}, ${body}`;
+  return dir || body || "";
 }
 
 function routeServiceNote(route) {
@@ -412,9 +430,13 @@ function collectPosterData(routeId, stopCode) {
     if (idx < 0) continue;
     const remaining = seq.slice(idx + 1);
     const nextStops = remaining
-      .map((r) => stopById[r.stop_id]?.stop_name)
+      .map((r) => {
+        const s = stopById[r.stop_id];
+        return s ? { name: s.stop_name, code: s.stop_code || "" } : null;
+      })
       .filter(Boolean);
-    const lastName = nextStops.length ? nextStops[nextStops.length - 1] : stop.stop_name;
+    const last = nextStops.length ? nextStops[nextStops.length - 1] : { name: stop.stop_name, code: stop.stop_code };
+    const lastName = last.name;
     const beforeDest = nextStops.length ? nextStops.slice(0, -1) : [];
     const intermediates = beforeDest.slice(0, 3);
     const time = parseTime(st.departure_time);
@@ -435,6 +457,7 @@ function collectPosterData(routeId, stopCode) {
       here: stop.stop_name,
       next3: intermediates,
       dest: lastName,
+      destCode: last.code || "",
       remainingCount: nextStops.length,
       travelMinutes,
       skippedAfter: beforeDest.length > 3,
@@ -482,15 +505,30 @@ function collectPosterData(routeId, stopCode) {
       saturday = markSessionOnly(saturday, dayDepartures(typical.saturdayReduced, headsign, direction));
       sunday = markSessionOnly(sunday, dayDepartures(typical.sundayReduced, headsign, direction));
       const dest = mostCommon(countBy(group, "dest")) || group[0].dest;
+      const destCode =
+        mostCommon(
+          group
+            .filter((r) => r.dest === dest)
+            .reduce((acc, r) => {
+              if (r.destCode) acc[r.destCode] = (acc[r.destCode] || 0) + 1;
+              return acc;
+            }, {})
+        ) ||
+        group[0].destCode ||
+        "";
       const next3 = mostCommon(
         group.reduce((acc, r) => {
-          const k = r.next3.join(" | ");
+          const k = r.next3.map((s) => `${s.name}\t${s.code || ""}`).join(" | ");
           acc[k] = (acc[k] || 0) + 1;
           return acc;
         }, {})
       )
         .split(" | ")
-        .filter(Boolean);
+        .filter(Boolean)
+        .map((p) => {
+          const [name, code] = p.split("\t");
+          return { name, code: code || "" };
+        });
       const skippedAfter = group.filter((r) => r.skippedAfter).length > group.length / 2;
       const remainingCount = Number(mostCommon(countBy(group, "remainingCount")) || 0);
       const travelSamples = group.map((r) => r.travelMinutes).filter((n) => n > 0);
@@ -509,6 +547,7 @@ function collectPosterData(routeId, stopCode) {
         here: stop.stop_name,
         next3,
         dest,
+        destCode,
         remainingCount,
         avgTravelMinutes,
         skippedAfter,
@@ -709,13 +748,21 @@ function wrapLabel(name) {
   return escapeHtml(name);
 }
 
+function stopNodeName(n) {
+  return typeof n === "string" ? n : n.name;
+}
+
+function stopNodeCode(n) {
+  return typeof n === "string" ? "" : n.code || "";
+}
+
 function headingNodes(heading) {
   const nodes = [{ type: "here", name: heading.here }];
-  for (const name of heading.next3) {
-    nodes.push({ type: "next", name });
+  for (const n of heading.next3 || []) {
+    nodes.push({ type: "next", name: stopNodeName(n), code: stopNodeCode(n) });
   }
   if (heading.remainingCount > 0 && heading.dest) {
-    nodes.push({ type: "terminus", name: heading.dest });
+    nodes.push({ type: "terminus", name: heading.dest, code: heading.destCode || "" });
   } else if (nodes.length === 1) {
     nodes[0].type = "terminus";
   }
@@ -806,7 +853,11 @@ function diagramHtml(heading) {
     .map((node, i) => {
       const pct = ((xs[i] / w) * 100).toFixed(2);
       const here = node.type === "here" ? `<span class="here-note">(you are here)</span>` : "";
-      return `<div class="lbl ${node.type}" style="left:${pct}%">${wrapLabel(node.name)}${here}</div>`;
+      const stopNo =
+        node.type !== "here" && node.code
+          ? `<span class="stop-no">Stop #${escapeHtml(node.code)}</span>`
+          : "";
+      return `<div class="lbl ${node.type}" style="left:${pct}%">${wrapLabel(node.name)}${here}${stopNo}</div>`;
     })
     .join("");
   return `<div class="diag">
@@ -1026,8 +1077,8 @@ function renderPoster(data) {
 
   const sections = headings
     .map((h, i) => {
-      const caption = serviceCaption(h.routeDirection, h.columns);
-      const led = `${h.board.code}    ${h.board.dest}`;
+      const caption = serviceCaptionHtml(h.routeDirection, h.columns);
+      const led = `${h.board.code} TO ${h.board.dest}`;
       const headingColor = h.routeColor || color;
       const prev = i > 0 ? headings[i - 1] : null;
       const routeBreak = multi && (!prev || prev.routeShortName !== h.routeShortName);
@@ -1038,9 +1089,10 @@ function renderPoster(data) {
         ${breakLabel}
         <div class="headboard" aria-label="${escapeHtml(led)}">
           <span class="led-code">${escapeHtml(h.board.code)}</span>
+          <span class="led-to">TO</span>
           <span class="led-dest">${escapeHtml(h.board.dest)}</span>
         </div>
-        ${caption ? `<div class="board-meta">${escapeHtml(caption)}</div>` : ""}
+        ${caption ? `<div class="board-meta">${caption}</div>` : ""}
         ${diagramHtml(h)}
         ${tableHtml(h)}
       </section>`;
@@ -1251,7 +1303,7 @@ function renderPoster(data) {
       display: flex;
       justify-content: flex-start;
       align-items: center;
-      gap: 1.1em;
+      gap: 0.45em;
       min-height: 2.45em;
       max-height: 2.45em;
       overflow: hidden;
@@ -1266,6 +1318,16 @@ function renderPoster(data) {
     .led-code {
       flex: 0 0 auto;
     }
+    .led-to {
+      flex: 0 0 auto;
+      font-family: "Share Tech Mono", "Consolas", monospace;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      line-height: 1;
+      font-size: 13px;
+      opacity: 0.85;
+      padding-top: 0.2em;
+    }
     .led-dest {
       flex: 1 1 auto;
       min-width: 0;
@@ -1277,8 +1339,18 @@ function renderPoster(data) {
       margin: 5px 0 8px;
       font-size: 12px;
       color: var(--muted);
-      font-weight: 500;
+      font-weight: 400;
+      font-style: italic;
       text-align: left;
+    }
+    .board-meta .dir {
+      font-style: normal;
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .board-meta .hours {
+      font-style: italic;
+      font-weight: 400;
     }
 
     .diag { margin: 0 0 8px; }
@@ -1309,6 +1381,18 @@ function renderPoster(data) {
       font-size: 7.5px;
       letter-spacing: 0.02em;
       line-height: 1.15;
+    }
+    .diag .lbl .stop-no {
+      position: absolute;
+      left: 0;
+      right: 0;
+      top: 100%;
+      font-style: normal;
+      font-weight: 500;
+      font-size: 7.5px;
+      letter-spacing: 0.02em;
+      line-height: 1.15;
+      color: var(--muted);
     }
     .diag .lbl.terminus { font-weight: 700; }
 
@@ -1401,6 +1485,7 @@ function renderPoster(data) {
       gap: 6px 16px;
       align-items: end;
     }
+    footer.notes .source { margin-top: 0.55em; }
     .unofficial {
       text-align: right;
       font-weight: 700;
@@ -1462,8 +1547,8 @@ function renderPoster(data) {
 
     <footer class="notes">
       <div>
-        <div>This is a citizen-made timetable intended to improve accessibility, not a Metro bulletin. ${anySessionOnly ? " * UW in session only." : ""} Holidays usually follow Sunday schedules.${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
-        <div>Source: Metro Transit GTFS ${escapeHtml(feed.feed_version)}, valid ${escapeHtml(formatDateRange(feed.feed_start_date, feed.feed_end_date))}. Please check for detours and holidays at cityofmadison.com/metro.</div>
+        <div>This is a citizen-made timetable intended to improve accessibility, not a Metro bulletin. Holidays usually follow Sunday schedules.${anySessionOnly ? " * UW in session only." : ""}${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
+        <div class="source">Source: Metro Transit GTFS ${escapeHtml(feed.feed_version)}, valid ${escapeHtml(formatDateRange(feed.feed_start_date, feed.feed_end_date))}. Please check for detours and holidays at cityofmadison.com/metro.</div>
       </div>
     </footer>
   </article>
@@ -1498,7 +1583,8 @@ function generatePoster(routeId, stopCode) {
     const cols = h.columns.map((c) => `${c.label} ${c.deps.length}`).join(" / ");
     const caption = serviceCaption(h.routeDirection, h.columns);
     console.log(`  ${h.board.code}    ${h.board.dest}  ${caption}`);
-    console.log(`    ${h.here} → ${h.next3.join(" → ")}${h.next3.length ? " → " : ""}${h.skippedAfter ? "… → " : ""}${h.dest}  [${cols}]`);
+    const nextNames = h.next3.map((n) => (typeof n === "string" ? n : n.name));
+    console.log(`    ${h.here} → ${nextNames.join(" → ")}${nextNames.length ? " → " : ""}${h.skippedAfter ? "… → " : ""}${h.dest}  [${cols}]`);
   }
   return outPath;
 }
