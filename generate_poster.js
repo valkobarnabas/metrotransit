@@ -1462,7 +1462,7 @@ function renderPoster(data) {
 
     <footer class="notes">
       <div>
-        <div>Hour at the left, minutes to the right.${anySessionOnly ? " * UW in session only." : ""} Holidays usually follow Sunday schedules.${routeNote ? ` ${escapeHtml(routeNote)}` : ""} This is a citizen-made timetable intended to improve accessibility, not a Metro bulletin.</div>
+        <div>This is a citizen-made timetable intended to improve accessibility, not a Metro bulletin. ${anySessionOnly ? " * UW in session only." : ""} Holidays usually follow Sunday schedules.${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
         <div>Source: Metro Transit GTFS ${escapeHtml(feed.feed_version)}, valid ${escapeHtml(formatDateRange(feed.feed_start_date, feed.feed_end_date))}. Please check for detours and holidays at cityofmadison.com/metro.</div>
       </div>
     </footer>
