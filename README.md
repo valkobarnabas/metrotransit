@@ -8,36 +8,20 @@ Unofficial printable timetables for [Madison Metro Transit](https://www.cityofma
 2. Pick a match. Colored letters are the routes at that stop; **EB / NB / WB / SB** is the street direction.
 3. Choose **All routes** or select individual routes to include on your poster. **Exclude school extras** is on by default (routes 60–64).
 4. **Generate poster**, then **Open** or **Download HTML**.
-
-Print from the poster page: Letter, actual size, no headers or footers. Extra pages tape together.
+5. Print or save pdf from the poster page.
 
 Live departures (QR code in top right) goes to Metro’s official live departure predictions.
-
-## GitHub Pages
-
-This folder is the site root. To publish:
-
-1. Create a GitHub repository and copy everything in this folder into it (including `data/pack.json.gz`). Do not upload the uncompressed `pack.json` — GitHub’s web UI rejects files over 25 MB.
-2. Settings → Pages → Deploy from a branch → `main` / root.
-
-Do not open `index.html` as a local file. Serve the folder instead:
-
-```bash
-npx serve .
-```
 
 ## Rebuild the stop data
 
 Packed timetables live in `data/pack.json.gz` (about 1,500 stops, ~2 MB gzipped). Rebuild it from the parent GTFS repo (GTFS data updates every ~3 months) after a feed update:
 
 ```bash
-# from the mmt_gtfs repo root (the folder that contains stops.txt)
+# from the mmt_gtfs repo root, after putting the contents of this repo into a github/ folder
 node github/build-data.js
 ```
 
 That writes `data/pack.json.gz` and a copy of `generate_poster.js` into this folder.
-
-School extras (60–64) are the `* Extras` routes that only run around school bell times and not during public-school recess. They stay out of **All** unless you uncheck **Exclude school extras**.
 
 ## Command-line posters
 
@@ -46,8 +30,8 @@ From the parent `mmt_gtfs` repo (Node required; `npm install` once):
 ```bash
 node generate_poster.js --route F --stop 6894
 node generate_poster.js --route ALL --stop 0010
-node generate_poster.js --route ALL+SCHOOL --stop 0716
-node generate_poster.js --route A,C,80 --stop 0716
+node generate_poster.js --route ALL+SCHOOL --stop 5748
+node generate_poster.js --route 55,75 --stop 4401
 ```
 
 `--route ALL` skips school extras. `--route ALL+SCHOOL` includes them. A named list (`60` or `C,64`) always includes those routes. If `ALL` finds only one regular route, the file is named like the single-route poster (`f-2197.html`), not `all-2197.html`.
