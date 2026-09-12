@@ -194,7 +194,7 @@ function serviceCaption(direction, columns) {
     })
     .filter(Boolean);
   const body = parts.join(", ");
-  if (direction && body) return `${direction}, ${body}`;
+  if (direction && body) return `${direction} ${body}`;
   if (body) return body;
   if (direction) return direction;
   return "";
@@ -210,7 +210,7 @@ function serviceCaptionHtml(direction, columns) {
     .filter(Boolean);
   const body = parts.join(", ");
   const dir = direction ? `<span class="dir">${escapeHtml(direction)}</span>` : "";
-  if (dir && body) return `${dir}, ${body}`;
+  if (dir && body) return `${dir} ${body}`;
   return dir || body || "";
 }
 
@@ -1485,7 +1485,7 @@ function renderPoster(data) {
       gap: 6px 16px;
       align-items: end;
     }
-    footer.notes .source { margin-top: 0.55em; }
+    footer.notes .source { margin-top: 0.02em; }
     .unofficial {
       text-align: right;
       font-weight: 700;
@@ -1547,7 +1547,7 @@ function renderPoster(data) {
 
     <footer class="notes">
       <div>
-        <div>This is a citizen-made timetable intended to improve accessibility, not a Metro bulletin. Holidays usually follow Sunday schedules.${anySessionOnly ? " * UW in session only." : ""}${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
+        <div>This is a citizen-made timetable intended to improve accessibility, not an official Metro Transit bulletin. Holidays usually follow Sunday schedules.${anySessionOnly ? " * UW in session only." : ""}${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
         <div class="source">Source: Metro Transit GTFS ${escapeHtml(feed.feed_version)}, valid ${escapeHtml(formatDateRange(feed.feed_start_date, feed.feed_end_date))}. Please check for detours and holidays at cityofmadison.com/metro.</div>
       </div>
     </footer>
