@@ -396,8 +396,7 @@ function mergeDaySchedules(monThu, friday, saturday, sunday) {
 
 function collectPosterData(routeId, stopCode) {
   const { stops, routes, calendar, feed, trips, timesByTrip, timesByStop } = loadGtfs();
-  const stop = stops.find((s) => s.stop_code === String(stopCode) || s.stop_id === String(stopCode));
-  if (!stop) throw new Error(`Stop ${stopCode} not found`);
+  const stop = findStop(stopCode);
   const route = routes.find(
     (r) => r.route_id === String(routeId) || r.route_short_name.toLowerCase() === String(routeId).toLowerCase()
   );
@@ -576,7 +575,7 @@ function collectPosterData(routeId, stopCode) {
 
 function findStop(stopCode) {
   const { stops } = loadGtfs();
-  const stop = stops.find((s) => s.stop_code === String(stopCode) || s.stop_id === String(stopCode));
+  const stop = stops.find((s) => s.stop_code === String(stopCode));
   if (!stop) throw new Error(`Stop ${stopCode} not found`);
   return stop;
 }
