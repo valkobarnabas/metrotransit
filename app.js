@@ -134,6 +134,10 @@ function showPicked(stop) {
 function generate() {
   showErr("");
   if (!selected) return;
+  if (!P || !P.mergePosterParts || !P.renderPoster) {
+    showErr("Poster engine failed to load. Refresh the page.");
+    return;
+  }
   const names = chosenNames();
   if (!names.length) {
     showErr("Pick at least one route.");
@@ -146,13 +150,21 @@ function generate() {
   }
   const want = new Set(names.map((n) => n.toLowerCase()));
   const parts = pack.parts.filter((p) => want.has(p.route.route_short_name.toLowerCase()));
-  const data = P.mergePosterParts(parts);
-  data.feed = pack.feed;
-  data.qrBits = pack.qrBits;
-  lastHtml = P.renderPoster(data);
-  preview.srcdoc = lastHtml;
-  outEl.hidden = false;
-  outEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!parts.length) {
+    showErr("No timetable data for the selected routes.");
+    return;
+  }
+  try {
+    const data = P.mergePosterParts(parts);
+    data.feed = pack.feed;
+    data.qrBits = pack.qrBits;
+    lastHtml = P.renderPoster(data);
+    preview.srcdoc = lastHtml;
+    outEl.hidden = false;
+    outEl.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (e) {
+    showErr(e.message || String(e));
+  }
 }
 
 function download() {

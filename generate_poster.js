@@ -5,7 +5,10 @@
  *        node generate_poster.js --route ALL+SCHOOL --stop 0716
  *        node generate_poster.js --route A,C,80 --stop 0716
  */
-const isNode = typeof process !== "undefined" && !!(process.versions && process.versions.node);
+const isNode =
+  typeof process !== "undefined" &&
+  !!(process.versions && process.versions.node) &&
+  typeof require === "function";
 const fs = isNode ? require("fs") : null;
 const path = isNode ? require("path") : null;
 const QRCode = isNode ? require("qrcode") : typeof globalThis !== "undefined" ? globalThis.QRCode : null;
@@ -220,15 +223,25 @@ function routeServiceNote(route) {
 }
 
 let GTFS = null;
+function gtfsDir() {
+  if (!fs || !path) return ".";
+  const here = __dirname;
+  if (fs.existsSync(path.join(here, "stops.txt"))) return here;
+  const parent = path.join(here, "..");
+  if (fs.existsSync(path.join(parent, "stops.txt"))) return parent;
+  return process.cwd();
+}
+
 function loadGtfs() {
   if (GTFS) return GTFS;
-  const stops = parseCsv(fs.readFileSync("stops.txt", "utf8"));
-  const routes = parseCsv(fs.readFileSync("routes.txt", "utf8"));
-  const calendar = parseCsv(fs.readFileSync("calendar.txt", "utf8"));
-  const calDates = parseCsv(fs.readFileSync("calendar_dates.txt", "utf8"));
-  const feed = parseCsv(fs.readFileSync("feed_info.txt", "utf8"))[0];
-  const trips = parseCsv(fs.readFileSync("trips.txt", "utf8"));
-  const stopTimes = parseCsv(fs.readFileSync("stop_times.txt", "utf8"));
+  const root = gtfsDir();
+  const stops = parseCsv(fs.readFileSync(path.join(root, "stops.txt"), "utf8"));
+  const routes = parseCsv(fs.readFileSync(path.join(root, "routes.txt"), "utf8"));
+  const calendar = parseCsv(fs.readFileSync(path.join(root, "calendar.txt"), "utf8"));
+  const calDates = parseCsv(fs.readFileSync(path.join(root, "calendar_dates.txt"), "utf8"));
+  const feed = parseCsv(fs.readFileSync(path.join(root, "feed_info.txt"), "utf8"))[0];
+  const trips = parseCsv(fs.readFileSync(path.join(root, "trips.txt"), "utf8"));
+  const stopTimes = parseCsv(fs.readFileSync(path.join(root, "stop_times.txt"), "utf8"));
   const timesByTrip = new Map();
   const timesByStop = new Map();
   for (const row of stopTimes) {
@@ -748,7 +761,8 @@ function wrapLabel(name) {
 }
 
 function stopNodeName(n) {
-  return typeof n === "string" ? n : n.name;
+  if (!n) return "";
+  return typeof n === "string" ? n : n.name || "";
 }
 
 function stopNodeCode(n) {
