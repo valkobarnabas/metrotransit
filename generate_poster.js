@@ -994,9 +994,14 @@ function metroLogoDataUri() {
     return LOGO_DATA_URI;
   }
   if (!fs || !path) return "";
-  const mark = path.join(__dirname, "metrologo-mark.png");
-  const full = path.join(__dirname, "metrologo.png");
-  const file = fs.existsSync(mark) ? mark : fs.existsSync(full) ? full : "";
+  const candidates = [
+    path.join(__dirname, "metrologo-mark.png"),
+    path.join(__dirname, "data", "metrologo-mark.png"),
+    path.join(__dirname, "github", "data", "metrologo-mark.png"),
+    path.join(__dirname, "..", "data", "metrologo-mark.png"),
+    path.join(__dirname, "metrologo.png"),
+  ];
+  const file = candidates.find((p) => fs.existsSync(p));
   if (!file) return "";
   LOGO_DATA_URI = `data:image/png;base64,${fs.readFileSync(file).toString("base64")}`;
   return LOGO_DATA_URI;
@@ -1515,19 +1520,21 @@ function renderPoster(data) {
         padding: 0;
         background: #fff !important;
         width: 8.5in;
+        max-width: 8.5in;
         height: auto;
+        overflow-x: hidden;
       }
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body > *:not(.sheet) { display: none !important; }
       .sheet {
         margin: 0 !important;
         width: 8.5in;
-        max-width: none;
+        max-width: 8.5in;
         min-height: 0 !important;
         height: auto !important;
-        overflow: visible;
+        overflow-x: hidden;
       }
-      @page { size: 8.5in 11in; margin: 0; }
+      @page { size: letter portrait; margin: 0; }
     }
   </style>
 </head>

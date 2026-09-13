@@ -239,6 +239,23 @@ goEl.addEventListener("click", generate);
 document.getElementById("save").addEventListener("click", download);
 document.getElementById("open").addEventListener("click", openTab);
 
+async function loadLogo() {
+  try {
+    const res = await fetch("data/metrologo-mark.png");
+    if (!res.ok) return;
+    const blob = await res.blob();
+    const uri = await new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(blob);
+    });
+    globalThis.METRO_LOGO_DATA_URI = uri;
+  } catch {
+    /* QR still works without the mark */
+  }
+}
+
 async function loadPack() {
   const res = await fetch("data/pack.json.gz");
   if (!res.ok) throw new Error("Stop data missing. Run node github/build-data.js");
@@ -261,7 +278,7 @@ async function loadPack() {
 
 qEl.disabled = true;
 showErr("Loading timetables…");
-loadPack()
+Promise.all([loadPack(), loadLogo()])
   .then(() => {
     qEl.disabled = false;
     showErr("");
