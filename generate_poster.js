@@ -222,8 +222,99 @@ function routeServiceNote(route) {
   return "";
 }
 
+const DEFAULT_POSTER_OPTS = {
+  agencyName: "Metro Transit",
+  showTo: true,
+  headboardStyle: "led",
+  footerBlurb:
+    "This is a citizen-made timetable intended to improve accessibility, not an official Metro Transit bulletin. Holidays usually follow Sunday schedules.",
+  sourceCheck: "Please check for detours and holidays at cityofmadison.com/metro.",
+  qrUrlTemplate: "https://metromap.cityofmadison.com/predictions/bystop/bustime:{stop_code}",
+  qrCaption: "Live departures",
+  logoDataUri: "",
+  findStopBy: "code",
+  routeColors: {},
+  fonts: {
+    title: 26,
+    kicker: 10,
+    meta: 12,
+    table: 13,
+    footer: 9.5,
+    board: 26,
+  },
+};
+
+let POSTER_OPTS = {
+  ...DEFAULT_POSTER_OPTS,
+  fonts: { ...DEFAULT_POSTER_OPTS.fonts },
+};
+
+function setPosterOptions(opts) {
+  const next = opts || {};
+  POSTER_OPTS = {
+    ...DEFAULT_POSTER_OPTS,
+    ...next,
+    fonts: { ...DEFAULT_POSTER_OPTS.fonts, ...(next.fonts || {}) },
+    routeColors: next.routeColors || {},
+  };
+}
+
+function posterOptions() {
+  return POSTER_OPTS;
+}
+
+function resetPosterOptions() {
+  POSTER_OPTS = { ...DEFAULT_POSTER_OPTS, fonts: { ...DEFAULT_POSTER_OPTS.fonts }, routeColors: {} };
+}
+
 let GTFS = null;
+let GTFS_DIR = null;
+
+function setGtfsDir(dir) {
+  GTFS_DIR = dir || null;
+  GTFS = null;
+}
+
+function setGtfs(bundle) {
+  GTFS = bundle || null;
+  if (!GTFS) return GTFS;
+  if (!GTFS.timesByTrip || !GTFS.timesByStop) indexStopTimes(GTFS);
+  if (!GTFS.routeByTrip && GTFS.trips) {
+    GTFS.routeByTrip = new Map(GTFS.trips.map((t) => [t.trip_id, t.route_id]));
+  }
+  if (!GTFS.feed) GTFS.feed = {};
+  if (!GTFS.calendar) GTFS.calendar = [];
+  if (!GTFS.calDates) GTFS.calDates = [];
+  GTFS.typical = null;
+  return GTFS;
+}
+
+function indexStopTimes(g) {
+  const timesByTrip = g.timesByTrip || new Map();
+  const timesByStop = g.timesByStop || new Map();
+  if (!g.timesByTrip || !g.timesByStop) {
+    timesByTrip.clear();
+    timesByStop.clear();
+    for (const row of g.stopTimes || []) {
+      let tripRows = timesByTrip.get(row.trip_id);
+      if (!tripRows) timesByTrip.set(row.trip_id, (tripRows = []));
+      tripRows.push(row);
+      let stopRows = timesByStop.get(row.stop_id);
+      if (!stopRows) timesByStop.set(row.stop_id, (stopRows = []));
+      stopRows.push(row);
+    }
+  }
+  g.timesByTrip = timesByTrip;
+  g.timesByStop = timesByStop;
+}
+
+function readCsvFile(file) {
+  if (!fs || !fs.existsSync(file)) return [];
+  return parseCsv(fs.readFileSync(file, "utf8"));
+}
+
 function gtfsDir() {
+  if (GTFS_DIR) return GTFS_DIR;
   if (!fs || !path) return ".";
   const here = __dirname;
   if (fs.existsSync(path.join(here, "stops.txt"))) return here;
@@ -232,14 +323,33 @@ function gtfsDir() {
   return process.cwd();
 }
 
+function inferFeedDates(feed, calendar, calDates) {
+  const out = { ...(feed || {}) };
+  if (out.feed_start_date && out.feed_end_date) return out;
+  let min = "99999999";
+  let max = "00000000";
+  for (const c of calendar || []) {
+    if (c.start_date && c.start_date < min) min = c.start_date;
+    if (c.end_date && c.end_date > max) max = c.end_date;
+  }
+  for (const d of calDates || []) {
+    if (d.date && d.date < min) min = d.date;
+    if (d.date && d.date > max) max = d.date;
+  }
+  if (min !== "99999999") out.feed_start_date = out.feed_start_date || min;
+  if (max !== "00000000") out.feed_end_date = out.feed_end_date || max;
+  return out;
+}
+
 function loadGtfs() {
   if (GTFS) return GTFS;
   const root = gtfsDir();
   const stops = parseCsv(fs.readFileSync(path.join(root, "stops.txt"), "utf8"));
   const routes = parseCsv(fs.readFileSync(path.join(root, "routes.txt"), "utf8"));
-  const calendar = parseCsv(fs.readFileSync(path.join(root, "calendar.txt"), "utf8"));
-  const calDates = parseCsv(fs.readFileSync(path.join(root, "calendar_dates.txt"), "utf8"));
-  const feed = parseCsv(fs.readFileSync(path.join(root, "feed_info.txt"), "utf8"))[0];
+  const calendar = readCsvFile(path.join(root, "calendar.txt"));
+  const calDates = readCsvFile(path.join(root, "calendar_dates.txt"));
+  const feed = inferFeedDates(readCsvFile(path.join(root, "feed_info.txt"))[0] || {}, calendar, calDates);
+  const agencies = readCsvFile(path.join(root, "agency.txt"));
   const trips = parseCsv(fs.readFileSync(path.join(root, "trips.txt"), "utf8"));
   const stopTimes = parseCsv(fs.readFileSync(path.join(root, "stop_times.txt"), "utf8"));
   const timesByTrip = new Map();
@@ -258,8 +368,8 @@ function loadGtfs() {
     calendar,
     calDates,
     feed,
+    agencies,
     trips,
-    stopTimes,
     timesByTrip,
     timesByStop,
     routeByTrip: new Map(trips.map((t) => [t.trip_id, t.route_id])),
@@ -288,12 +398,21 @@ function servicesOnDate(d, calendar, calDates) {
     if (ex.exception_type === "1") active.add(ex.service_id);
     else if (ex.exception_type === "2") active.delete(ex.service_id);
   }
-  return [...active].sort((a, b) => Number(a) - Number(b));
+  return [...active].sort((a, b) => String(a).localeCompare(String(b)));
 }
 
 function typicalServiceIds(calendar, calDates, feed) {
-  const start = parseYmd(feed.feed_start_date);
-  const end = parseYmd(feed.feed_end_date);
+  const span = inferFeedDates(feed, calendar, calDates);
+  if (!span.feed_start_date || !span.feed_end_date) {
+    const empty = {};
+    for (const n of ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"]) {
+      empty[n] = new Set();
+      empty[`${n}Reduced`] = new Set();
+    }
+    return empty;
+  }
+  const start = parseYmd(span.feed_start_date);
+  const end = parseYmd(span.feed_end_date);
   const names = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
   const byDow = Object.fromEntries(names.map((n) => [n, {}]));
   for (let d = new Date(start); d <= end; d = addDays(d, 1)) {
@@ -426,7 +545,7 @@ function collectPosterData(routeId, stopCode) {
   for (const row of timesByStop.get(stop.stop_id) || []) {
     if (routeTrips[row.trip_id]) atStop.push(row);
   }
-  if (!atStop.length) throw new Error(`Route ${route.route_short_name} does not serve stop ${stop.stop_code}`);
+  if (!atStop.length) throw new Error(`Route ${route.route_short_name} does not serve stop ${publicStopCode(stop)}`);
 
   const stopById = Object.fromEntries(stops.map((s) => [s.stop_id, s]));
   const typical = typicalForFeed();
@@ -438,7 +557,9 @@ function collectPosterData(routeId, stopCode) {
     const seq = (timesByTrip.get(st.trip_id) || [])
       .slice()
       .sort((a, b) => Number(a.stop_sequence) - Number(b.stop_sequence));
-    const idx = seq.findIndex((r) => r.stop_id === stop.stop_id);
+    const idx = seq.findIndex(
+      (r) => r.stop_id === stop.stop_id && String(r.stop_sequence) === String(st.stop_sequence)
+    );
     if (idx < 0) continue;
     const remaining = seq.slice(idx + 1);
     const nextStops = remaining
@@ -453,6 +574,7 @@ function collectPosterData(routeId, stopCode) {
     const intermediates = beforeDest.slice(0, 3);
     const time = parseTime(st.departure_time);
     const headsign = (st.stop_headsign || trip.trip_headsign || "").trim();
+    const direction = trip.trip_direction_name || "";
     const lastSt = remaining.length ? remaining[remaining.length - 1] : null;
     let travelMinutes = 0;
     if (lastSt) {
@@ -460,10 +582,18 @@ function collectPosterData(routeId, stopCode) {
       travelMinutes = destT.minutes - time.minutes;
       if (travelMinutes < 0) travelMinutes += 24 * 60;
     }
+    const pathKey = [
+      headsign,
+      trip.direction_id || "",
+      direction,
+      lastName,
+      intermediates.map((s) => s.name).join("|"),
+    ].join("\t");
     records.push({
       service_id: trip.service_id,
       headsign,
-      direction: trip.trip_direction_name,
+      direction,
+      pathKey,
       hh: time.hh,
       mm: time.mm,
       here: stop.stop_name,
@@ -475,21 +605,21 @@ function collectPosterData(routeId, stopCode) {
       skippedAfter: beforeDest.length > 3,
     });
   }
-  if (!records.length) throw new Error(`No pickup trips for route ${route.route_short_name} at stop ${stop.stop_code}`);
+  if (!records.length) throw new Error(`No pickup trips for route ${route.route_short_name} at stop ${publicStopCode(stop)}`);
 
-  function dayDepartures(serviceSet, headsign, direction) {
+  function dayDepartures(serviceSet, pathKey) {
     return uniqueTimes(
       records
-        .filter((r) => serviceSet.has(r.service_id) && r.headsign === headsign && r.direction === direction)
+        .filter((r) => serviceSet.has(r.service_id) && r.pathKey === pathKey)
         .sort((a, b) => a.hh - b.hh || a.mm - b.mm)
     );
   }
 
-  function fallbackByCalendar(headsign, direction, which) {
+  function fallbackByCalendar(pathKey, which) {
     return uniqueTimes(
       records
         .filter((r) => {
-          if (r.headsign !== headsign || r.direction !== direction) return false;
+          if (r.pathKey !== pathKey) return false;
           const flags = serviceDayFlags(calendarById[r.service_id]);
           return flags[which];
         })
@@ -497,25 +627,27 @@ function collectPosterData(routeId, stopCode) {
     );
   }
 
-  const headingKeys = [...new Set(records.map((r) => `${r.headsign}\t${r.direction}`))];
+  const headingKeys = [...new Set(records.map((r) => r.pathKey))];
   const headings = headingKeys
     .map((key) => {
-      const [headsign, direction] = key.split("\t");
-      const group = records.filter((r) => r.headsign === headsign && r.direction === direction);
-      let monThu = dayDepartures(typical.tuesday, headsign, direction);
-      let friday = dayDepartures(typical.friday, headsign, direction);
-      let saturday = dayDepartures(typical.saturday, headsign, direction);
-      let sunday = dayDepartures(typical.sunday, headsign, direction);
+      const group = records.filter((r) => r.pathKey === key);
+      const headsign = group[0].headsign;
+      const direction = group[0].direction;
+      let monThu = dayDepartures(typical.tuesday, key);
+      let friday = dayDepartures(typical.friday, key);
+      let saturday = dayDepartures(typical.saturday, key);
+      let sunday = dayDepartures(typical.sunday, key);
       if (!monThu.length && !friday.length && !saturday.length && !sunday.length) {
-        monThu = fallbackByCalendar(headsign, direction, "tuesday");
-        friday = fallbackByCalendar(headsign, direction, "friday");
-        saturday = fallbackByCalendar(headsign, direction, "saturday");
-        sunday = fallbackByCalendar(headsign, direction, "sunday");
+        monThu = fallbackByCalendar(key, "tuesday");
+        friday = fallbackByCalendar(key, "friday");
+        saturday = fallbackByCalendar(key, "saturday");
+        sunday = fallbackByCalendar(key, "sunday");
       }
-      monThu = markSessionOnly(monThu, dayDepartures(typical.tuesdayReduced, headsign, direction));
-      friday = markSessionOnly(friday, dayDepartures(typical.fridayReduced, headsign, direction));
-      saturday = markSessionOnly(saturday, dayDepartures(typical.saturdayReduced, headsign, direction));
-      sunday = markSessionOnly(sunday, dayDepartures(typical.sundayReduced, headsign, direction));
+      monThu = markSessionOnly(monThu, dayDepartures(typical.tuesdayReduced, key));
+      friday = markSessionOnly(friday, dayDepartures(typical.fridayReduced, key));
+      saturday = markSessionOnly(saturday, dayDepartures(typical.saturdayReduced, key));
+      sunday = markSessionOnly(sunday, dayDepartures(typical.sundayReduced, key));
+      const colors = resolveRouteColors(route);
       const dest = mostCommon(countBy(group, "dest")) || group[0].dest;
       const destCode =
         mostCommon(
@@ -567,8 +699,8 @@ function collectPosterData(routeId, stopCode) {
         weekdayCount: monThu.length + friday.length,
         earliest: earliest ? earliest.hh * 60 + earliest.mm : 99 * 60,
         hasSessionOnly,
-        routeColor: `#${route.route_color || "333366"}`,
-        routeTextColor: `#${route.route_text_color || "FFFFFF"}`,
+        routeColor: colors.bg,
+        routeTextColor: colors.ink,
         routeShortName: route.route_short_name,
       };
     })
@@ -586,9 +718,38 @@ function collectPosterData(routeId, stopCode) {
   };
 }
 
+function publicStopCode(stop) {
+  const code = String(stop.stop_code || "").trim();
+  return code || stop.stop_id;
+}
+
+function hexColor(value, fallback) {
+  const s = String(value || "").replace(/^#/, "").trim();
+  if (/^[0-9A-Fa-f]{6}$/.test(s)) return `#${s}`;
+  return fallback;
+}
+
+function resolveRouteColors(route) {
+  const ov = (POSTER_OPTS.routeColors || {})[route.route_short_name] || (POSTER_OPTS.routeColors || {})[route.route_id];
+  const fallbackBg = hexColor(route.route_color, "#333366");
+  const fallbackInk = hexColor(route.route_text_color, "#FFFFFF");
+  if (typeof ov === "string") return { bg: hexColor(ov, fallbackBg), ink: fallbackInk };
+  if (ov && typeof ov === "object") {
+    return {
+      bg: hexColor(ov.bg || ov.color, fallbackBg),
+      ink: hexColor(ov.text || ov.ink, fallbackInk),
+    };
+  }
+  return { bg: fallbackBg, ink: fallbackInk };
+}
+
 function findStop(stopCode) {
   const { stops } = loadGtfs();
-  const stop = stops.find((s) => s.stop_code === String(stopCode));
+  const want = String(stopCode);
+  let stop = stops.find((s) => s.stop_code === want);
+  if (!stop && POSTER_OPTS.findStopBy === "codeOrId") {
+    stop = stops.find((s) => s.stop_id === want);
+  }
   if (!stop) throw new Error(`Stop ${stopCode} not found`);
   return stop;
 }
@@ -602,7 +763,11 @@ function routesServingStop(stop) {
   }
   return routes
     .filter((r) => ids.has(r.route_id))
-    .sort((a, b) => Number(a.route_sort_order) - Number(b.route_sort_order));
+    .sort(
+      (a, b) =>
+        Number(a.route_sort_order || 0) - Number(b.route_sort_order || 0) ||
+        String(a.route_short_name || "").localeCompare(String(b.route_short_name || ""), undefined, { numeric: true })
+    );
 }
 
 /** School extras (60–64): limited AM/PM trips, no service on public-school recess/holidays. */
@@ -695,17 +860,35 @@ function routeListPhrase(names) {
 
 function timetableKicker(routes) {
   const names = routes.map((r) => r.route_short_name);
-  if (names.length <= 1) return `Metro Transit Route ${names[0]} departures`;
-  return `Metro Transit Route ${routeListPhrase(names)} departures`;
+  const agency = POSTER_OPTS.agencyName || "Metro Transit";
+  if (names.length <= 1) return `${agency} Route ${names[0]} departures`;
+  return `${agency} Route ${routeListPhrase(names)} departures`;
 }
 
-function routeBadge(route, pack) {
+function badgeGrid(n) {
+  const maxW = 2.95;
+  const gap = 0.04;
+  const minSize = 0.48;
+  if (n <= 1) return { cols: 1, size: 0.92, gap };
+  if (n === 2) return { cols: 2, size: 0.86, gap };
+  if (n === 3) return { cols: 3, size: 0.78, gap };
+  const preferred = 0.68;
+  const fit = (cols) => Math.min(preferred, (maxW - Math.max(0, cols - 1) * gap) / cols);
+  let cols = Math.ceil(n / 2);
+  let size = fit(cols);
+  if (size < minSize) {
+    cols = Math.ceil(n / 3);
+    size = fit(cols);
+  }
+  return { cols, size, gap };
+}
+
+function routeBadge(route, grid) {
   const name = route.route_short_name;
-  const bg = `#${route.route_color || "333366"}`;
-  const ink = `#${route.route_text_color || "FFFFFF"}`;
-  let size = name.length > 2 ? 42 : name.length > 1 ? 56 : 72;
-  if (pack > 3) size = Math.round(size * 0.36);
-  return `<div class="badge" style="background:${bg};color:${ink};font-size:${size}px" aria-label="Route ${escapeHtml(name)}">${escapeHtml(name)}</div>`;
+  const { bg, ink } = resolveRouteColors(route);
+  let font = name.length > 2 ? 42 : name.length > 1 ? 56 : 72;
+  font = Math.max(11, Math.round(font * (grid.size / 0.92)));
+  return `<div class="badge" style="background:${bg};color:${ink};width:${grid.size}in;height:${grid.size}in;font-size:${font}px" aria-label="Route ${escapeHtml(name)}">${escapeHtml(name)}</div>`;
 }
 
 function groupByHour(deps) {
@@ -988,6 +1171,7 @@ function tableHtml(heading) {
 
 let LOGO_DATA_URI = null;
 function metroLogoDataUri() {
+  if (POSTER_OPTS.logoDataUri) return POSTER_OPTS.logoDataUri;
   if (LOGO_DATA_URI) return LOGO_DATA_URI;
   if (typeof globalThis !== "undefined" && typeof globalThis.METRO_LOGO_DATA_URI === "string") {
     LOGO_DATA_URI = globalThis.METRO_LOGO_DATA_URI;
@@ -1008,7 +1192,9 @@ function metroLogoDataUri() {
 }
 
 function stopPredictionUrl(stopCode) {
-  return `https://metromap.cityofmadison.com/predictions/bystop/bustime:${stopCode}`;
+  const t = POSTER_OPTS.qrUrlTemplate;
+  if (!t) return "";
+  return String(t).replace(/\{stop_code\}/g, encodeURIComponent(stopCode));
 }
 
 function qrBits(text) {
@@ -1080,23 +1266,42 @@ function renderPoster(data) {
   const { stop, route, feed, headings } = data;
   const routes = data.routes && data.routes.length ? data.routes : [route];
   const multi = routes.length > 1;
-  const color = headings[0]?.routeColor || `#${route.route_color || "333366"}`;
-  const textColor = headings[0]?.routeTextColor || `#${route.route_text_color || "FFFFFF"}`;
+  const firstColors = resolveRouteColors(route);
+  const color = headings[0]?.routeColor || firstColors.bg;
+  const textColor = headings[0]?.routeTextColor || firstColors.ink;
   const lastColor = headings[headings.length - 1]?.routeColor || color;
   const street = streetDirectionLabel(stop);
   const pack = routes.length;
-  const badges = `<div class="badges n-${pack > 3 ? "many" : pack}">${routes.map((r) => routeBadge(r, pack)).join("")}</div>`;
+  const grid = badgeGrid(pack);
+  const badges = `<div class="badges" style="--badge-cols:${grid.cols};--badge-gap:${grid.gap}in">${routes.map((r) => routeBadge(r, grid)).join("")}</div>`;
   const kicker = timetableKicker(routes);
+  const fonts = POSTER_OPTS.fonts;
+  const showTo = POSTER_OPTS.showTo !== false;
+  const hbClass = POSTER_OPTS.headboardStyle === "plain" ? "headboard plain" : "headboard";
+  const stopNo = publicStopCode(stop);
 
-  const predUrl = stopPredictionUrl(stop.stop_code);
-  const qr = data.qrSvg || qrSvgFromBits(data.qrBits) || qrSvgWithLogo(predUrl);
+  const predUrl = stopPredictionUrl(stopNo);
+  const qr = data.qrSvg || qrSvgFromBits(data.qrBits) || (predUrl ? qrSvgWithLogo(predUrl) : "");
   const routeNote = data.routeNote || routeServiceNote(route);
   const anySessionOnly = headings.some((h) => h.hasSessionOnly);
+  const sourceRange =
+    feed && feed.feed_start_date && feed.feed_end_date
+      ? `, valid ${escapeHtml(formatDateRange(feed.feed_start_date, feed.feed_end_date))}`
+      : "";
+  const sourceLine = `Source: ${escapeHtml(POSTER_OPTS.agencyName)} GTFS${
+    feed && feed.feed_version ? ` ${escapeHtml(feed.feed_version)}` : ""
+  }${sourceRange}.${POSTER_OPTS.sourceCheck ? ` ${escapeHtml(POSTER_OPTS.sourceCheck)}` : ""}`;
+  const logo = POSTER_OPTS.logoDataUri || "";
+  const fav = logo
+    ? `<link rel="icon" href="${logo}" />`
+    : `<link rel="icon" type="image/png" href="../metrologo-mark.png" />
+  <link rel="shortcut icon" type="image/png" href="../metrologo-mark.png" />
+  <link rel="apple-touch-icon" href="../metrologo-mark.png" />`;
 
   const sections = headings
     .map((h, i) => {
       const caption = serviceCaptionHtml(h.routeDirection, h.columns);
-      const led = `${h.board.code} TO ${h.board.dest}`;
+      const led = showTo ? `${h.board.code} TO ${h.board.dest}` : `${h.board.code} ${h.board.dest}`;
       const headingColor = h.routeColor || color;
       const prev = i > 0 ? headings[i - 1] : null;
       const routeBreak = multi && (!prev || prev.routeShortName !== h.routeShortName);
@@ -1105,9 +1310,9 @@ function renderPoster(data) {
         : "";
       return `<section class="heading${routeBreak ? " route-break" : ""}" style="--route: ${headingColor}">
         ${breakLabel}
-        <div class="headboard" aria-label="${escapeHtml(led)}">
+        <div class="${hbClass}" aria-label="${escapeHtml(led)}">
           <span class="led-code">${escapeHtml(h.board.code)}</span>
-          <span class="led-to">TO</span>
+          ${showTo ? `<span class="led-to">TO</span>` : ""}
           <span class="led-dest">${escapeHtml(h.board.dest)}</span>
         </div>
         ${caption ? `<div class="board-meta">${caption}</div>` : ""}
@@ -1122,10 +1327,8 @@ function renderPoster(data) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(multi ? `Routes ${routeListPhrase(routes.map((r) => r.route_short_name))}` : `Route ${route.route_short_name}`)} · ${escapeHtml(stop.stop_name)} · ${escapeHtml(stop.stop_code)}</title>
-  <link rel="icon" type="image/png" href="../metrologo-mark.png" />
-  <link rel="shortcut icon" type="image/png" href="../metrologo-mark.png" />
-  <link rel="apple-touch-icon" href="../metrologo-mark.png" />
+  <title>${escapeHtml(multi ? `Routes ${routeListPhrase(routes.map((r) => r.route_short_name))}` : `Route ${route.route_short_name}`)} · ${escapeHtml(stop.stop_name)} · ${escapeHtml(stopNo)}</title>
+  ${fav}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
@@ -1140,6 +1343,12 @@ function renderPoster(data) {
       --desk: #cfc8be;
       --led: #f5a623;
       --led-bg: #0c0c0c;
+      --title-size: ${fonts.title}px;
+      --kicker-size: ${fonts.kicker}px;
+      --meta-size: ${fonts.meta}px;
+      --board-size: ${fonts.board}px;
+      --table-size: ${fonts.table}px;
+      --footer-size: ${fonts.footer}px;
     }
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; }
@@ -1203,11 +1412,12 @@ function renderPoster(data) {
       border-bottom: 3px solid var(--route);
     }
     .badges {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
+      display: grid;
+      grid-template-columns: repeat(var(--badge-cols, 1), auto);
+      gap: var(--badge-gap, 4px);
       align-items: center;
       align-content: center;
+      justify-items: center;
     }
     .badge {
       width: 0.92in;
@@ -1220,13 +1430,6 @@ function renderPoster(data) {
       font-weight: 800;
       line-height: 1;
       letter-spacing: -0.04em;
-    }
-    .badges.n-many {
-      max-width: 1.36in;
-    }
-    .badges.n-many .badge {
-      width: 0.32in;
-      height: 0.32in;
     }
     .sheet.multi .heading {
       position: relative;
@@ -1255,7 +1458,7 @@ function renderPoster(data) {
       bottom: -0.2in;
     }
     .ident .kicker {
-      font-size: 10px;
+      font-size: var(--kicker-size);
       letter-spacing: ${pack > 3 ? "0.06em" : "0.16em"};
       text-transform: uppercase;
       font-weight: 700;
@@ -1263,12 +1466,12 @@ function renderPoster(data) {
     }
     .ident h1 {
       margin: 2px 0 3px;
-      font-size: 26px;
+      font-size: var(--title-size);
       line-height: 1.05;
       font-weight: 700;
       letter-spacing: -0.02em;
     }
-    .ident .meta { font-size: 12px; color: var(--muted); }
+    .ident .meta { font-size: var(--meta-size); color: var(--muted); }
     .qr-block {
       justify-self: end;
       width: 0.95in;
@@ -1331,7 +1534,7 @@ function renderPoster(data) {
       letter-spacing: 0.12em;
       text-transform: uppercase;
       line-height: 1;
-      font-size: 26px;
+      font-size: var(--board-size);
     }
     .led-code {
       flex: 0 0 auto;
@@ -1342,9 +1545,21 @@ function renderPoster(data) {
       letter-spacing: 0.16em;
       text-transform: uppercase;
       line-height: 1;
-      font-size: 13px;
+      font-size: calc(var(--board-size) * 0.5);
       opacity: 0.85;
       padding-top: 0.2em;
+    }
+    .headboard.plain {
+      background: #fff;
+      color: var(--ink);
+      border: 2px solid var(--route);
+    }
+    .headboard.plain .led-code,
+    .headboard.plain .led-dest,
+    .headboard.plain .led-to {
+      font-family: "IBM Plex Sans", "Segoe UI", Tahoma, sans-serif;
+      letter-spacing: 0.04em;
+      color: inherit;
     }
     .led-dest {
       flex: 1 1 auto;
@@ -1460,7 +1675,7 @@ function renderPoster(data) {
       text-align: right;
       padding-right: 8px;
       font-weight: 700;
-      font-size: 13px;
+      font-size: var(--table-size);
     }
     table.tt tbody th.hour::after {
       content: ":";
@@ -1469,7 +1684,7 @@ function renderPoster(data) {
     table.tt td, table.tt tbody th {
       padding: 1px 8px 1px 0;
       border-top: 1px solid var(--rule);
-      font-size: 13px;
+      font-size: var(--table-size);
       vertical-align: middle;
     }
     table.tt tbody tr { height: 0.19in; }
@@ -1495,7 +1710,7 @@ function renderPoster(data) {
       margin-top: auto;
       padding-top: 8px;
       border-top: 1px solid var(--rule);
-      font-size: 9.5px;
+      font-size: var(--footer-size);
       line-height: 1.4;
       color: var(--muted);
       display: grid;
@@ -1544,7 +1759,7 @@ function renderPoster(data) {
     <button type="button" onclick="window.print()">Print / save PDF</button>
     <label><input type="radio" name="clock" value="12" checked onchange="document.body.dataset.clock='12'" /> 12-hour</label>
     <label><input type="radio" name="clock" value="24" onchange="document.body.dataset.clock='24'" /> 24-hour</label>
-    <span class="hint">Letter · actual size · tape extra pages if needed</span>
+    <span class="hint" id="page-count">Letter · measuring pages…</span>
   </div>
 
   <article class="sheet${multi ? " multi" : ""}" data-headings="${headings.length}">
@@ -1553,25 +1768,49 @@ function renderPoster(data) {
       <div class="ident">
         <div class="kicker">${escapeHtml(kicker)}</div>
         <h1>${escapeHtml(stop.stop_name)}</h1>
-        <div class="meta">Stop #${escapeHtml(stop.stop_code)}${street ? `, on ${escapeHtml(street)}` : ""}</div>
+        <div class="meta">Stop #${escapeHtml(stopNo)}${street ? `, on ${escapeHtml(street)}` : ""}</div>
       </div>
-      <div class="qr-block">
-        <a href="${escapeHtml(predUrl)}" target="_blank" rel="noopener" title="Live departures from this stop">
+      ${
+        qr
+          ? `<div class="qr-block">
+        <a href="${escapeHtml(predUrl)}" target="_blank" rel="noopener" title="${escapeHtml(POSTER_OPTS.qrCaption || "Live departures")}">
           ${qr}
-          <div class="qr-cap">Live departures</div>
+          <div class="qr-cap">${escapeHtml(POSTER_OPTS.qrCaption || "Live departures")}</div>
         </a>
-      </div>
+      </div>`
+          : `<div class="qr-block"></div>`
+      }
     </header>
 
     ${sections}
 
     <footer class="notes">
       <div>
-        <div>This is a citizen-made timetable intended to improve accessibility, not an official Metro Transit bulletin. Holidays usually follow Sunday schedules.${anySessionOnly ? " * UW in session only." : ""}${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
-        <div class="source">Source: Metro Transit GTFS ${escapeHtml(feed.feed_version)}, valid ${escapeHtml(formatDateRange(feed.feed_start_date, feed.feed_end_date))}. Please check for detours and holidays at cityofmadison.com/metro.</div>
+        <div>${escapeHtml(POSTER_OPTS.footerBlurb)}${anySessionOnly ? " * UW in session only." : ""}${routeNote ? ` ${escapeHtml(routeNote)}` : ""}</div>
+        <div class="source">${sourceLine}</div>
       </div>
     </footer>
   </article>
+  <script>
+    (function () {
+      function pages() {
+        var sheet = document.querySelector(".sheet");
+        var el = document.getElementById("page-count");
+        if (!sheet || !el) return;
+        var probe = document.createElement("div");
+        probe.style.cssText = "position:absolute;left:-9999px;width:1in;height:1in";
+        document.body.appendChild(probe);
+        var inch = probe.offsetHeight || 96;
+        document.body.removeChild(probe);
+        var n = Math.max(1, Math.ceil(sheet.offsetHeight / (11 * inch)));
+        sheet.setAttribute("data-pages", String(n));
+        el.textContent = n === 1 ? "Letter · 1 page · actual size" : "Letter · " + n + " pages · tape extra pages if needed";
+      }
+      if (document.readyState === "complete") pages();
+      else window.addEventListener("load", pages);
+      window.addEventListener("resize", pages);
+    })();
+  </script>
 </body>
 </html>
 `;
@@ -1623,6 +1862,16 @@ const posterApi = {
   qrBits,
   stopPredictionUrl,
   loadGtfs,
+  setGtfs,
+  setGtfsDir,
+  setPosterOptions,
+  resetPosterOptions,
+  posterOptions,
+  parseCsv,
+  parseCsvLine,
+  publicStopCode,
+  findStop,
+  inferFeedDates,
 };
 
 if (typeof module !== "undefined" && module.exports) {
