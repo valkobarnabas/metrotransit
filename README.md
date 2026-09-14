@@ -1,5 +1,4 @@
-# Metro stop posters
-
+# Metro Transit timetable generator
 This is an unofficial tool to create custom printable timetables for [Madison Metro Transit](https://www.cityofmadison.com/metro) stops, built from the public [GTFS data](https://transitdata.cityofmadison.com/GTFS/). It is modelled after European bus stop posters (à la Budapest, Vienna, Helsinki, etc...). The leftmost column in each table is the hour, and the comma-separated minutes follow to the right. The poster is split up by route headboards, so users of the system know precisely which bus they are looking for: each headboard section contains hours of operation, the next three stops on that route, the final stop of the route, and how many stops/how long it takes to get to said final stop. 
 
 ## Use the site
