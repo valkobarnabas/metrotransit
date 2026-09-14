@@ -1102,6 +1102,30 @@ function headerTextWidthIn(text) {
   return (n * 8.0 - 1.2) / 96;
 }
 
+function isWeekendColumn(col) {
+  const k = String(col.key || "");
+  if (k === "weekend" || k === "saturday" || k === "sunday" || k === "sat" || k === "sun" || k === "frisat") return true;
+  const label = String(col.label || "");
+  if (/^(Saturday|Sunday)/.test(label)) return true;
+  if (/Saturday–Sunday|Sat–Sun|Friday–Saturday|Fri–Sat/.test(label)) return true;
+  return false;
+}
+
+function ledPlaneSvg() {
+  return `<svg class="led-plane" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M7.16 2.25L9.71 10.8 4.7 10.8 3.18 9.12 1.2 9.12 2.46 12.05 1.2 14.93 3.18 14.93 4.68 13.29 9.69 13.29 7.16 21.75 9.14 21.9 14.6 13.29 21.53 13.29C21.88 13.29 22.18 13.17 22.43 12.95 22.68 12.72 22.8 12.42 22.8 12.05 22.8 11.88 22.77 11.72 22.7 11.57 22.64 11.42 22.55 11.29 22.43 11.17 22.31 11.05 22.17 10.96 22.02 10.9 21.86 10.83 21.7 10.8 21.53 10.8L14.64 10.8 9.14 2.1Z"/></svg>`;
+}
+
+function headboardDestHtml(dest) {
+  const stripped = String(dest || "")
+    .replace(/[\u2708\uFE0E\uFE0F]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (POSTER_OPTS.agencyName === "Metro Transit" && stripped === "AIRPORT") {
+    return `${ledPlaneSvg()}<span class="led-word">AIRPORT</span>${ledPlaneSvg()}`;
+  }
+  return escapeHtml(dest);
+}
+
 function oneColTable(col, hours, headerLabel) {
   const byHour = groupByHour(col.deps);
   const rows = hours
@@ -1115,8 +1139,9 @@ function oneColTable(col, hours, headerLabel) {
     .join("\n");
   const label = headerLabel || col.label;
   const title = label !== col.label ? ` title="${escapeHtml(col.label)}"` : "";
+  const wknd = isWeekendColumn(col) ? " class=\"wknd\"" : "";
   return `<table class="tt">
-    <thead><tr><th></th><th${title}>${escapeHtml(label)}${col.sub ? `<span class="sub">${escapeHtml(col.sub)}</span>` : ""}</th></tr></thead>
+    <thead><tr><th></th><th${title}${wknd}>${escapeHtml(label)}${col.sub ? `<span class="sub">${escapeHtml(col.sub)}</span>` : ""}</th></tr></thead>
     <tbody>${rows}</tbody>
   </table>`;
 }
@@ -1313,7 +1338,7 @@ function renderPoster(data) {
         <div class="${hbClass}" aria-label="${escapeHtml(led)}">
           <span class="led-code">${escapeHtml(h.board.code)}</span>
           ${showTo ? `<span class="led-to">TO</span>` : ""}
-          <span class="led-dest">${escapeHtml(h.board.dest)}</span>
+          <span class="led-dest">${headboardDestHtml(h.board.dest)}</span>
         </div>
         ${caption ? `<div class="board-meta">${caption}</div>` : ""}
         ${diagramHtml(h)}
@@ -1567,6 +1592,20 @@ function renderPoster(data) {
       text-align: left;
       white-space: nowrap;
       overflow: hidden;
+      display: flex;
+      align-items: center;
+      gap: 0;
+    }
+    .led-word {
+      letter-spacing: 0.12em;
+      padding-left: 0.32em;
+      padding-right: 0.14em;
+      margin-right: -0.12em;
+    }
+    .led-plane {
+      width: 1em;
+      height: 1em;
+      flex: 0 0 auto;
     }
     .board-meta {
       margin: 5px 0 8px;
@@ -1655,11 +1694,14 @@ function renderPoster(data) {
       font-size: 10px;
       letter-spacing: 0.12em;
       text-transform: uppercase;
-      font-weight: 700;
+      font-weight: 800;
       padding: 4px 8px 5px 0;
       border-bottom: 2px solid var(--ink);
       vertical-align: bottom;
       white-space: nowrap;
+    }
+    table.tt thead th.wknd {
+      font-style: italic;
     }
     table.tt thead th .sub {
       display: block;
@@ -1804,7 +1846,7 @@ function renderPoster(data) {
         document.body.removeChild(probe);
         var n = Math.max(1, Math.ceil(sheet.offsetHeight / (11 * inch)));
         sheet.setAttribute("data-pages", String(n));
-        el.textContent = n === 1 ? "Letter · 1 page · actual size" : "Letter · " + n + " pages · tape extra pages if needed";
+        el.textContent = n === 1 ? "Letter · 1 page" : "Letter · " + n + " pages";
       }
       if (document.readyState === "complete") pages();
       else window.addEventListener("load", pages);
