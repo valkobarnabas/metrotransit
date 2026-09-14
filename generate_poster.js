@@ -504,6 +504,87 @@ function labelDayCluster(days) {
   return { key: seq.join("").toLowerCase(), label: `${names[seq[0]]}–${names[seq[seq.length - 1]]}`, sub: "" };
 }
 
+const UW_HOSPITAL_DAY_TERMINUS = "2091";
+const UW_HOSPITAL_EVENING_TERMINUS = "2916";
+const UW_HOSPITAL_TERMINUS_NOTE =
+  "Trips on weekdays after 7pm and on weekends terminate at southbound Highland at Observatory (Stop #2916).";
+
+function isUwHospitalTerminusPair(a, b) {
+  if (!a || !b) return false;
+  if (String(a.routeShortName || "").toUpperCase() !== "C") return false;
+  if (String(b.routeShortName || "").toUpperCase() !== "C") return false;
+  if ((a.board && a.board.dest) !== "UW HOSPITAL" || (b.board && b.board.dest) !== "UW HOSPITAL") return false;
+  if ((a.routeDirection || "") !== (b.routeDirection || "")) return false;
+  if (!/westbound/i.test(a.routeDirection || "")) return false;
+  const codes = new Set([String(a.destCode || ""), String(b.destCode || "")]);
+  return codes.has(UW_HOSPITAL_DAY_TERMINUS) && codes.has(UW_HOSPITAL_EVENING_TERMINUS);
+}
+
+function mergeHeadingColumns(aCols, bCols) {
+  const out = (aCols || []).map((col) => ({ ...col, deps: (col.deps || []).slice() }));
+  for (const col of bCols || []) {
+    const i = out.findIndex((c) => c.key === col.key || c.label === col.label);
+    if (i < 0) {
+      out.push({ ...col, deps: (col.deps || []).slice() });
+      continue;
+    }
+    out[i] = {
+      ...out[i],
+      deps: uniqueTimes(
+        [...out[i].deps, ...(col.deps || [])].sort(
+          (x, y) => x.hh - y.hh || x.mm - y.mm || (x.sessionOnly ? 1 : 0) - (y.sessionOnly ? 1 : 0)
+        )
+      ),
+    };
+  }
+  return out;
+}
+
+function mergeUwHospitalHeadings(day, evening) {
+  const columns = mergeHeadingColumns(day.columns, evening.columns);
+  const earliestA = day.earliest != null ? day.earliest : 99 * 60;
+  const earliestB = evening.earliest != null ? evening.earliest : 99 * 60;
+  return {
+    ...day,
+    dest: "Observatory at Highland",
+    destCode: UW_HOSPITAL_DAY_TERMINUS,
+    destFootnote: UW_HOSPITAL_TERMINUS_NOTE,
+    columns,
+    weekdayCount: (day.weekdayCount || 0) + (evening.weekdayCount || 0),
+    earliest: Math.min(earliestA, earliestB),
+    hasSessionOnly: !!(day.hasSessionOnly || evening.hasSessionOnly),
+  };
+}
+
+function mergeCloseTermini(headings) {
+  if (POSTER_OPTS.agencyName !== "Metro Transit") return headings || [];
+  const list = headings || [];
+  const used = new Set();
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    if (used.has(i)) continue;
+    let pair = -1;
+    for (let j = i + 1; j < list.length; j++) {
+      if (used.has(j)) continue;
+      if (isUwHospitalTerminusPair(list[i], list[j])) {
+        pair = j;
+        break;
+      }
+    }
+    if (pair < 0) {
+      out.push(list[i]);
+      continue;
+    }
+    used.add(pair);
+    const a = list[i];
+    const b = list[pair];
+    const day = a.destCode === UW_HOSPITAL_DAY_TERMINUS ? a : b;
+    const evening = a.destCode === UW_HOSPITAL_EVENING_TERMINUS ? a : b;
+    out.push(mergeUwHospitalHeadings(day, evening));
+  }
+  return out;
+}
+
 function mergeDaySchedules(monThu, friday, saturday, sunday) {
   const groups = [
     { days: ["Mon", "Tue", "Wed", "Thu"], deps: monThu },
@@ -706,14 +787,15 @@ function collectPosterData(routeId, stopCode) {
     })
     .filter(Boolean);
 
-  headings.sort((a, b) => b.weekdayCount - a.weekdayCount || a.earliest - b.earliest);
+  const mergedHeadings = mergeCloseTermini(headings);
+  mergedHeadings.sort((a, b) => b.weekdayCount - a.weekdayCount || a.earliest - b.earliest);
 
   return {
     stop,
     route,
     routes: [route],
     feed,
-    headings,
+    headings: mergedHeadings,
     direction: mostCommon(countBy(records, "direction")),
   };
 }
@@ -958,7 +1040,12 @@ function headingNodes(heading) {
     nodes.push({ type: "next", name: stopNodeName(n), code: stopNodeCode(n) });
   }
   if (heading.remainingCount > 0 && heading.dest) {
-    nodes.push({ type: "terminus", name: heading.dest, code: heading.destCode || "" });
+    nodes.push({
+      type: "terminus",
+      name: heading.dest,
+      code: heading.destCode || "",
+      star: !!heading.destFootnote,
+    });
   } else if (nodes.length === 1) {
     nodes[0].type = "terminus";
   }
@@ -1053,7 +1140,8 @@ function diagramHtml(heading) {
         node.type !== "here" && node.code
           ? `<span class="stop-no">Stop #${escapeHtml(node.code)}</span>`
           : "";
-      return `<div class="lbl ${node.type}" style="left:${pct}%">${wrapLabel(node.name)}${here}${stopNo}</div>`;
+      const labelName = node.star ? `${node.name}*` : node.name;
+      return `<div class="lbl ${node.type}" style="left:${pct}%">${wrapLabel(labelName)}${here}${stopNo}</div>`;
     })
     .join("");
   return `<div class="diag">
@@ -1179,7 +1267,10 @@ function tableHtml(heading) {
   const columns = heading.columns;
   const n = columns.length;
   const hours = hourSet(columns, n > 1);
-  if (n <= 1) return `<div class="tt-wrap cols-1">${oneColTable(columns[0], hours)}</div>`;
+  const note = heading.destFootnote
+    ? `<p class="tt-note">*${escapeHtml(heading.destFootnote)}</p>`
+    : "";
+  if (n <= 1) return `<div class="tt-wrap cols-1">${oneColTable(columns[0], hours)}</div>${note}`;
   const mins = colMinWidths(columns);
   const available = TT_INNER_IN - TT_GAP_IN * (n - 1);
   const extra = Math.max(0, available - mins.reduce((a, b) => a + b, 0));
@@ -1191,7 +1282,7 @@ function tableHtml(heading) {
     })
     .join("");
   const cols = mins.map((w) => `minmax(${w.toFixed(2)}in, 1fr)`).join(" ");
-  return `<div class="tt-wrap cols-${n}" style="grid-template-columns:${cols}">${tables}</div>`;
+  return `<div class="tt-wrap cols-${n}" style="grid-template-columns:${cols}">${tables}</div>${note}`;
 }
 
 let LOGO_DATA_URI = null;
@@ -1288,7 +1379,8 @@ function qrSvgWithLogo(text) {
 }
 
 function renderPoster(data) {
-  const { stop, route, feed, headings } = data;
+  const { stop, route, feed } = data;
+  const headings = mergeCloseTermini(data.headings);
   const routes = data.routes && data.routes.length ? data.routes : [route];
   const multi = routes.length > 1;
   const firstColors = resolveRouteColors(route);
@@ -1682,6 +1774,13 @@ function renderPoster(data) {
     .tt-wrap > table.tt { min-width: 0; }
     .tt-wrap table.tt td { white-space: normal; }
     .tt-wrap .min { white-space: nowrap; }
+    .tt-note {
+      margin: 8px 0 0;
+      font-size: 10.5px;
+      line-height: 1.35;
+      color: var(--muted);
+      font-weight: 500;
+    }
     .tt-wrap:not(.cols-1) table.tt td { padding-right: 4px; }
 
     table.tt {
