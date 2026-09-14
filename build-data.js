@@ -56,6 +56,7 @@ function slimHeading(h) {
     next3: h.next3,
     dest: h.dest,
     destCode: h.destCode,
+    destFootnote: h.destFootnote || "",
     remainingCount: h.remainingCount,
     avgTravelMinutes: h.avgTravelMinutes,
     skippedAfter: h.skippedAfter,
