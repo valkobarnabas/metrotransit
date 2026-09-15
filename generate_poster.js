@@ -472,15 +472,22 @@ function serviceDayFlags(calendarRow) {
 }
 
 function uniqueTimes(deps) {
-  const seen = new Set();
-  const out = [];
+  const seen = new Map();
   for (const r of deps) {
     const k = `${r.hh}:${r.mm}`;
-    if (seen.has(k)) continue;
-    seen.add(k);
-    out.push(r);
+    const prev = seen.get(k);
+    if (!prev) {
+      seen.set(k, r);
+      continue;
+    }
+    seen.set(k, {
+      ...prev,
+      ...r,
+      sessionOnly: !!(prev.sessionOnly || r.sessionOnly),
+      noteStar: !!(prev.noteStar || r.noteStar),
+    });
   }
-  return out;
+  return [...seen.values()];
 }
 
 function markSessionOnly(deps, reducedDeps) {
@@ -525,6 +532,12 @@ const CLOSE_TERMINUS_PAIRS = [
     dayCode: "2091",
     eveningCode: "2916",
     displayName: "Observatory at Highland",
+    destNote: {
+      type: "terminus",
+      lead: "Trips on weekdays after 7pm and on weekends terminate at southbound ",
+      stopName: "Highland at Observatory",
+      stopCode: "2916",
+    },
     footnote:
       "Trips on weekdays after 7pm and on weekends terminate at southbound Highland at Observatory (Stop #2916).",
   },
@@ -534,8 +547,68 @@ const CLOSE_TERMINUS_PAIRS = [
     dayCode: "10001",
     eveningCode: "10004",
     displayName: "Junction",
+    destNote: {
+      type: "terminus",
+      lead: "Trips on weekdays after 8pm and on weekends terminate at ",
+      stopName: "Junction at Park And Ride",
+      stopCode: "10004",
+    },
     footnote:
       "Trips on weekdays after 8pm and on weekends terminate at Junction at Park And Ride (Stop #10004).",
+  },
+];
+
+/** Westbound A BRT stops from East Springs through Junction (west of High Crossing, East Springs inclusive). */
+const A_WESTBOUND_FROM_EAST_SPRINGS = new Set([
+  "10137",
+  "10133",
+  "10129",
+  "10125",
+  "10121",
+  "10117",
+  "10113",
+  "10109",
+  "10105",
+  "10101",
+  "10097",
+  "10093",
+  "10089",
+  "10085",
+  "10081",
+  "10077",
+  "10069",
+  "10061",
+  "10057",
+  "10053",
+  "10049",
+  "10045",
+  "10041",
+  "10037",
+  "10033",
+  "10029",
+  "10025",
+  "10021",
+  "10017",
+  "10013",
+  "10001",
+]);
+
+const HEADSIGN_MERGES = [
+  {
+    route: "A",
+    direction: /westbound/i,
+    keepDest: "JUNCTION",
+    foldDest: "JUNCTION VIA HIGH CROSSING",
+    displayName: "Junction",
+    destNote: {
+      type: "headsign",
+      lead: "Marked trips from this stop follow the same route but operate under the headsign ",
+      headsign: "JUNCTION VIA HIGH CROSSING",
+    },
+    footnote:
+      "Marked trips from this stop follow the same route but operate under the headsign Junction via High Crossing.",
+    starTerminus: false,
+    stopCodes: A_WESTBOUND_FROM_EAST_SPRINGS,
   },
 ];
 
@@ -554,6 +627,41 @@ function matchingTerminusRule(a, b) {
     }
     if (rule.direction && !rule.direction.test(a.routeDirection || "")) continue;
     if (codes.has(rule.dayCode) && codes.has(rule.eveningCode)) return rule;
+  }
+  return null;
+}
+
+function markColumnDeps(columns, extra) {
+  return (columns || []).map((col) => ({
+    ...col,
+    deps: (col.deps || []).map((d) => ({ ...d, ...extra })),
+  }));
+}
+
+function boardDestOf(h) {
+  return String((h && h.board && h.board.dest) || "").toUpperCase();
+}
+
+function headingStopCode(h, stop) {
+  if (h && h.hereCode) return String(h.hereCode);
+  if (stop) return String(publicStopCode(stop) || stop.stop_code || "");
+  return "";
+}
+
+function matchingHeadsignRule(a, b, stop) {
+  if (!a || !b) return null;
+  if ((a.routeDirection || "") !== (b.routeDirection || "")) return null;
+  if ((a.board && a.board.code) !== (b.board && b.board.code)) return null;
+  const routeA = String(a.routeShortName || "").toUpperCase();
+  const routeB = String(b.routeShortName || "").toUpperCase();
+  const dests = new Set([boardDestOf(a), boardDestOf(b)]);
+  const code = headingStopCode(a, stop) || headingStopCode(b, stop);
+  for (const rule of HEADSIGN_MERGES) {
+    if (routeA !== rule.route || routeB !== rule.route) continue;
+    if (rule.direction && !rule.direction.test(a.routeDirection || "")) continue;
+    if (!dests.has(rule.keepDest) || !dests.has(rule.foldDest)) continue;
+    if (rule.stopCodes && !rule.stopCodes.has(code)) continue;
+    return rule;
   }
   return null;
 }
@@ -588,6 +696,8 @@ function mergePairedTermini(day, evening, rule) {
     dest: rule.displayName,
     destCode: rule.dayCode,
     destFootnote: rule.footnote,
+    destNote: rule.destNote || null,
+    starTerminus: rule.starTerminus !== false,
     columns,
     weekdayCount: (day.weekdayCount || 0) + (evening.weekdayCount || 0),
     earliest: Math.min(earliestA, earliestB),
@@ -595,7 +705,24 @@ function mergePairedTermini(day, evening, rule) {
   };
 }
 
-function mergeCloseTermini(headings) {
+function mergeHeadsignPair(keep, fold, rule) {
+  const columns = mergeHeadingColumns(keep.columns, markColumnDeps(fold.columns, { noteStar: true }));
+  const earliestA = keep.earliest != null ? keep.earliest : 99 * 60;
+  const earliestB = fold.earliest != null ? fold.earliest : 99 * 60;
+  return {
+    ...keep,
+    dest: rule.displayName || keep.dest,
+    destFootnote: rule.footnote,
+    destNote: rule.destNote || null,
+    starTerminus: rule.starTerminus !== false,
+    columns,
+    weekdayCount: (keep.weekdayCount || 0) + (fold.weekdayCount || 0),
+    earliest: Math.min(earliestA, earliestB),
+    hasSessionOnly: !!(keep.hasSessionOnly || fold.hasSessionOnly),
+  };
+}
+
+function mergeCloseTermini(headings, stop) {
   if (POSTER_OPTS.agencyName !== "Metro Transit") return headings || [];
   const list = headings || [];
   const used = new Set();
@@ -604,11 +731,19 @@ function mergeCloseTermini(headings) {
     if (used.has(i)) continue;
     let pair = -1;
     let rule = null;
+    let kind = null;
     for (let j = i + 1; j < list.length; j++) {
       if (used.has(j)) continue;
       rule = matchingTerminusRule(list[i], list[j]);
       if (rule) {
         pair = j;
+        kind = "terminus";
+        break;
+      }
+      rule = matchingHeadsignRule(list[i], list[j], stop);
+      if (rule) {
+        pair = j;
+        kind = "headsign";
         break;
       }
     }
@@ -619,6 +754,12 @@ function mergeCloseTermini(headings) {
     used.add(pair);
     const a = list[i];
     const b = list[pair];
+    if (kind === "headsign") {
+      const keep = boardDestOf(a) === rule.keepDest ? a : b;
+      const fold = boardDestOf(a) === rule.foldDest ? a : b;
+      out.push(mergeHeadsignPair(keep, fold, rule));
+      continue;
+    }
     const day = a.destCode === rule.dayCode ? a : b;
     const evening = a.destCode === rule.eveningCode ? a : b;
     out.push(mergePairedTermini(day, evening, rule));
@@ -896,6 +1037,7 @@ function collectPosterData(routeId, stopCode) {
         board,
         routeDirection: titleDirection(direction),
         here: stop.stop_name,
+        hereCode: publicStopCode(stop),
         next3,
         dest,
         destCode,
@@ -914,7 +1056,7 @@ function collectPosterData(routeId, stopCode) {
     })
     .filter(Boolean);
 
-  const mergedHeadings = sortHeadings(mergeCloseTermini(headings));
+  const mergedHeadings = sortHeadings(mergeCloseTermini(headings, stop));
 
   return {
     stop,
@@ -1036,7 +1178,7 @@ function collectMultiPosterData(routeList, stopCode) {
     }
   }
   if (!parts.length) throw new Error(`No pickup trips at stop ${stopCode} for those routes`);
-  const headings = sortHeadings(mergeCloseTermini(headingsFromParts(parts)));
+  const headings = sortHeadings(mergeCloseTermini(headingsFromParts(parts), parts[0].stop));
   const notes = [...new Set(parts.map((p) => routeServiceNote(p.route)).filter(Boolean))];
   return {
     stop: parts[0].stop,
@@ -1051,7 +1193,7 @@ function collectMultiPosterData(routeList, stopCode) {
 
 function mergePosterParts(parts) {
   if (!parts.length) throw new Error("No routes selected");
-  const headings = sortHeadings(mergeCloseTermini(headingsFromParts(parts)));
+  const headings = sortHeadings(mergeCloseTermini(headingsFromParts(parts), parts[0].stop));
   if (parts.length === 1) {
     const p = parts[0];
     return {
@@ -1136,7 +1278,7 @@ function minsHtml(list) {
   if (!list || !list.length) return `<span class="empty">-</span>`;
   return list
     .map((r) => {
-      const star = r.sessionOnly ? `<sup class="uw">*</sup>` : "";
+      const star = r.sessionOnly || r.noteStar ? `<sup class="uw">*</sup>` : "";
       return `<span class="min">${String(r.mm).padStart(2, "0")}${star}</span>`;
     })
     .join("");
@@ -1184,7 +1326,7 @@ function headingNodes(heading) {
       type: "terminus",
       name: heading.dest,
       code: heading.destCode || "",
-      star: !!heading.destFootnote,
+      star: heading.starTerminus !== false && !!heading.destFootnote,
     });
   } else if (nodes.length === 1) {
     nodes[0].type = "terminus";
@@ -1404,13 +1546,25 @@ function colMinWidths(columns) {
   return extraNeeded.map((e) => TT_COL_FLOOR_IN + (e / extraSum) * extraAvail);
 }
 
+function destNoteHtml(heading) {
+  const note = heading.destNote;
+  if (note && note.type === "headsign") {
+    return `<p class="tt-note">*${escapeHtml(note.lead)}<span class="note-led">${escapeHtml(note.headsign)}</span>.</p>`;
+  }
+  if (note && note.type === "terminus") {
+    return `<p class="tt-note">*${escapeHtml(note.lead)}<span class="term-name">${escapeHtml(
+      note.stopName
+    )}</span> <span class="term-no">(Stop #${escapeHtml(note.stopCode)})</span>.</p>`;
+  }
+  if (heading.destFootnote) return `<p class="tt-note">*${escapeHtml(heading.destFootnote)}</p>`;
+  return "";
+}
+
 function tableHtml(heading) {
   const columns = heading.columns;
   const n = columns.length;
   const hours = hourSet(columns, n > 1);
-  const note = heading.destFootnote
-    ? `<p class="tt-note">*${escapeHtml(heading.destFootnote)}</p>`
-    : "";
+  const note = destNoteHtml(heading);
   if (n <= 1) return `<div class="tt-wrap cols-1">${oneColTable(columns[0], hours)}</div>${note}`;
   const mins = colMinWidths(columns);
   const available = TT_INNER_IN - TT_GAP_IN * (n - 1);
@@ -1714,7 +1868,7 @@ const POSTER_CHROME_SCRIPT = String.raw`
 
 function renderPoster(data) {
   const { stop, route, feed } = data;
-  const headings = sortHeadings(mergeCloseTermini(data.headings));
+  const headings = sortHeadings(mergeCloseTermini(data.headings, data.stop));
   const routes = data.routes && data.routes.length ? data.routes : [route];
   const multi = routes.length > 1;
   const firstColors = resolveRouteColors(route);
@@ -2120,6 +2274,27 @@ function renderPoster(data) {
       color: var(--muted);
       font-weight: 500;
     }
+    .tt-note .term-name {
+      font-weight: 700;
+      color: var(--ink);
+    }
+    .tt-note .term-no {
+      font-weight: 500;
+    }
+    .tt-note .note-led {
+      display: inline-block;
+      font-family: "Share Tech Mono", "Consolas", monospace;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-size: 1.05em;
+      line-height: 1;
+      background: var(--led-bg);
+      color: var(--led);
+      border: 1px solid #2b2b2b;
+      padding: 0.18em 0.4em 0.12em;
+      vertical-align: baseline;
+      font-weight: 400;
+    }
     .tt-wrap:not(.cols-1) table.tt td { padding-right: 4px; }
 
     table.tt {
@@ -2184,7 +2359,7 @@ function renderPoster(data) {
       margin-right: 0.12em;
     }
     .empty { color: #c4c4c4; }
-    .min .uw { font-size: 0.72em; font-weight: 700; margin-left: 1px; }
+    .min .uw { font-size: 0.68em; font-weight: 700; margin: 0 0 0 -0.18em; padding: 0; }
     .h12 .ap { font-size: 0.58em; font-weight: 600; margin-left: 1px; }
 
     footer.notes {
