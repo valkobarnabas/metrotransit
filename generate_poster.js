@@ -558,8 +558,9 @@ const CLOSE_TERMINUS_PAIRS = [
   },
 ];
 
-/** Westbound A BRT stops from East Springs through Junction (west of High Crossing, East Springs inclusive). */
-const A_WESTBOUND_FROM_EAST_SPRINGS = new Set([
+/** Westbound A: East Springs through Junction, plus High Crossing at E Springs (#9624). */
+const A_WESTBOUND_FROM_HIGH_CROSSING_E_SPRINGS = new Set([
+  "9624",
   "10137",
   "10133",
   "10129",
@@ -593,23 +594,30 @@ const A_WESTBOUND_FROM_EAST_SPRINGS = new Set([
   "10001",
 ]);
 
-const HEADSIGN_MERGES = [
-  {
-    route: "A",
-    direction: /westbound/i,
-    keepDest: "JUNCTION",
-    foldDest: "JUNCTION VIA HIGH CROSSING",
-    displayName: "Junction",
+/** Eastbound A2: Eastpark spur after High Crossing, through to the garage. */
+const A_EASTBOUND_EASTPARK = new Set(["9330", "9906", "9584", "9115", "9717", "9300"]);
+
+function viaHeadsignMerge(route, direction, keepDest, foldDest, stopCodes, displayName) {
+  return {
+    route,
+    direction,
+    keepDest,
+    foldDest,
+    displayName,
     destNote: {
       type: "headsign",
       lead: "Marked trips from this stop follow the same route but operate under the headsign ",
-      headsign: "JUNCTION VIA HIGH CROSSING",
+      headsign: foldDest,
     },
-    footnote:
-      "Marked trips from this stop follow the same route but operate under the headsign Junction via High Crossing.",
+    footnote: `Marked trips from this stop follow the same route but operate under the headsign ${foldDest}.`,
     starTerminus: false,
-    stopCodes: A_WESTBOUND_FROM_EAST_SPRINGS,
-  },
+    stopCodes,
+  };
+}
+
+const HEADSIGN_MERGES = [
+  viaHeadsignMerge("A", /westbound/i, "JUNCTION", "JUNCTION VIA HIGH CROSSING", A_WESTBOUND_FROM_HIGH_CROSSING_E_SPRINGS, "Junction"),
+  viaHeadsignMerge("A", /eastbound/i, "AMERICAN CENTER", "AMERICAN CENTER VIA HIGH CROSSING", A_EASTBOUND_EASTPARK),
 ];
 
 function matchingTerminusRule(a, b) {
