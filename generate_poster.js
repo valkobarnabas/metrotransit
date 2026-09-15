@@ -176,16 +176,29 @@ function spanLabel(deps) {
   return a === b ? a : `${a}–${b}`;
 }
 
+function isAfterMidnightDep(dep) {
+  const h = Number(dep && dep.hh);
+  if (!Number.isFinite(h)) return false;
+  return h >= 24 || (h >= 0 && h < 4);
+}
+
+function isNightOnlyColumn(col) {
+  const deps = (col && col.deps) || [];
+  return deps.length > 0 && deps.every(isAfterMidnightDep);
+}
+
 function columnDayLabel(col) {
-  if (col.key === "weekday") return "Monday–Friday";
-  if (col.key === "weekend") return "Saturday–Sunday";
-  if (col.key === "frisat") return "Friday–Saturday";
-  if (col.key === "mt") return "Monday–Thursday";
-  if (col.key === "sunthu") return "Sunday–Thursday";
-  if (col.key === "friday") return "Fridays";
-  if (col.key === "saturday") return "Saturdays";
-  if (col.key === "sunday") return "Sundays";
-  return col.label;
+  let label = col.label;
+  if (col.key === "weekday") label = "Monday–Friday";
+  else if (col.key === "weekend") label = "Saturday–Sunday";
+  else if (col.key === "frisat") label = "Friday–Saturday";
+  else if (col.key === "mt") label = "Monday–Thursday";
+  else if (col.key === "sunthu") label = "Sunday–Thursday";
+  else if (col.key === "friday") label = "Fridays";
+  else if (col.key === "saturday") label = "Saturdays";
+  else if (col.key === "sunday") label = "Sundays";
+  if (isNightOnlyColumn(col) && !/night/i.test(label)) label = `${label} Night`;
+  return label;
 }
 
 function serviceCaption(direction, columns) {
@@ -230,7 +243,7 @@ const DEFAULT_POSTER_OPTS = {
     "This is a citizen-made timetable intended to improve accessibility, not an official Metro Transit bulletin. Holidays usually follow Sunday schedules.",
   sourceCheck: "Please check for detours and holidays at cityofmadison.com/metro.",
   qrUrlTemplate: "https://metromap.cityofmadison.com/predictions/bystop/bustime:{stop_code}",
-  qrCaption: "Live departures",
+  qrCaption: "Live departures\nfrom this stop",
   logoDataUri: "",
   findStopBy: "code",
   routeColors: {},
@@ -504,20 +517,45 @@ function labelDayCluster(days) {
   return { key: seq.join("").toLowerCase(), label: `${names[seq[0]]}–${names[seq[seq.length - 1]]}`, sub: "" };
 }
 
-const UW_HOSPITAL_DAY_TERMINUS = "2091";
-const UW_HOSPITAL_EVENING_TERMINUS = "2916";
-const UW_HOSPITAL_TERMINUS_NOTE =
-  "Trips on weekdays after 7pm and on weekends terminate at southbound Highland at Observatory (Stop #2916).";
+const CLOSE_TERMINUS_PAIRS = [
+  {
+    route: "C",
+    boardDest: "UW HOSPITAL",
+    direction: /westbound/i,
+    dayCode: "2091",
+    eveningCode: "2916",
+    displayName: "Observatory at Highland",
+    footnote:
+      "Trips on weekdays after 7pm and on weekends terminate at southbound Highland at Observatory (Stop #2916).",
+  },
+  {
+    route: "F",
+    direction: /westbound/i,
+    dayCode: "10001",
+    eveningCode: "10004",
+    displayName: "Junction",
+    footnote:
+      "Trips on weekdays after 8pm and on weekends terminate at Junction at Park And Ride (Stop #10004).",
+  },
+];
 
-function isUwHospitalTerminusPair(a, b) {
-  if (!a || !b) return false;
-  if (String(a.routeShortName || "").toUpperCase() !== "C") return false;
-  if (String(b.routeShortName || "").toUpperCase() !== "C") return false;
-  if ((a.board && a.board.dest) !== "UW HOSPITAL" || (b.board && b.board.dest) !== "UW HOSPITAL") return false;
-  if ((a.routeDirection || "") !== (b.routeDirection || "")) return false;
-  if (!/westbound/i.test(a.routeDirection || "")) return false;
+function matchingTerminusRule(a, b) {
+  if (!a || !b) return null;
+  if ((a.routeDirection || "") !== (b.routeDirection || "")) return null;
+  if ((a.board && a.board.code) !== (b.board && b.board.code)) return null;
+  if ((a.board && a.board.dest) !== (b.board && b.board.dest)) return null;
+  const routeA = String(a.routeShortName || "").toUpperCase();
+  const routeB = String(b.routeShortName || "").toUpperCase();
   const codes = new Set([String(a.destCode || ""), String(b.destCode || "")]);
-  return codes.has(UW_HOSPITAL_DAY_TERMINUS) && codes.has(UW_HOSPITAL_EVENING_TERMINUS);
+  for (const rule of CLOSE_TERMINUS_PAIRS) {
+    if (routeA !== rule.route || routeB !== rule.route) continue;
+    if (rule.boardDest && ((a.board && a.board.dest) !== rule.boardDest || (b.board && b.board.dest) !== rule.boardDest)) {
+      continue;
+    }
+    if (rule.direction && !rule.direction.test(a.routeDirection || "")) continue;
+    if (codes.has(rule.dayCode) && codes.has(rule.eveningCode)) return rule;
+  }
+  return null;
 }
 
 function mergeHeadingColumns(aCols, bCols) {
@@ -535,20 +573,21 @@ function mergeHeadingColumns(aCols, bCols) {
           (x, y) => x.hh - y.hh || x.mm - y.mm || (x.sessionOnly ? 1 : 0) - (y.sessionOnly ? 1 : 0)
         )
       ),
+      days: [...new Set([...(out[i].days || []), ...(col.days || [])])],
     };
   }
   return out;
 }
 
-function mergeUwHospitalHeadings(day, evening) {
+function mergePairedTermini(day, evening, rule) {
   const columns = mergeHeadingColumns(day.columns, evening.columns);
   const earliestA = day.earliest != null ? day.earliest : 99 * 60;
   const earliestB = evening.earliest != null ? evening.earliest : 99 * 60;
   return {
     ...day,
-    dest: "Observatory at Highland",
-    destCode: UW_HOSPITAL_DAY_TERMINUS,
-    destFootnote: UW_HOSPITAL_TERMINUS_NOTE,
+    dest: rule.displayName,
+    destCode: rule.dayCode,
+    destFootnote: rule.footnote,
     columns,
     weekdayCount: (day.weekdayCount || 0) + (evening.weekdayCount || 0),
     earliest: Math.min(earliestA, earliestB),
@@ -564,9 +603,11 @@ function mergeCloseTermini(headings) {
   for (let i = 0; i < list.length; i++) {
     if (used.has(i)) continue;
     let pair = -1;
+    let rule = null;
     for (let j = i + 1; j < list.length; j++) {
       if (used.has(j)) continue;
-      if (isUwHospitalTerminusPair(list[i], list[j])) {
+      rule = matchingTerminusRule(list[i], list[j]);
+      if (rule) {
         pair = j;
         break;
       }
@@ -578,11 +619,96 @@ function mergeCloseTermini(headings) {
     used.add(pair);
     const a = list[i];
     const b = list[pair];
-    const day = a.destCode === UW_HOSPITAL_DAY_TERMINUS ? a : b;
-    const evening = a.destCode === UW_HOSPITAL_EVENING_TERMINUS ? a : b;
-    out.push(mergeUwHospitalHeadings(day, evening));
+    const day = a.destCode === rule.dayCode ? a : b;
+    const evening = a.destCode === rule.eveningCode ? a : b;
+    out.push(mergePairedTermini(day, evening, rule));
   }
   return out;
+}
+
+function parseBoardSort(h) {
+  const raw = String((h.board && h.board.code) || h.routeShortName || "");
+  const letter = raw.match(/^([A-Za-z]+)(\d*)$/);
+  if (letter) {
+    return {
+      kind: 0,
+      base: letter[1].toUpperCase(),
+      variant: letter[2] === "" ? Number.POSITIVE_INFINITY : Number(letter[2]),
+    };
+  }
+  const numbered = raw.match(/^(\d+)([A-Za-z]*)$/);
+  if (numbered) {
+    return { kind: 1, base: numbered[1].padStart(4, "0"), variant: 0 };
+  }
+  return { kind: 2, base: raw.toUpperCase(), variant: 0 };
+}
+
+function columnDayCount(col) {
+  if (col.days && col.days.length) return col.days.length;
+  const k = String(col.key || "");
+  if (k === "weekday" || k === "sunthu") return 5;
+  if (k === "mt") return 4;
+  if (k === "weekend" || k === "frisat") return 2;
+  if (k === "daily") return 7;
+  return 1;
+}
+
+function headingTripWeight(h) {
+  return (h.columns || []).reduce((n, col) => n + (col.deps || []).length * columnDayCount(col), 0);
+}
+
+function isSchoolHeading(h) {
+  if (h && h.school === true) return true;
+  const name = String((h && h.routeShortName) || "");
+  return /^6[0-4]$/.test(name);
+}
+
+function headingFamilyKey(h) {
+  const r = parseBoardSort(h);
+  return [isSchoolHeading(h) ? 1 : 0, r.kind, r.base, String(h.routeDirection || "").toLowerCase()].join("\t");
+}
+
+function isSparseHeading(h, familyMax) {
+  const w = headingTripWeight(h);
+  if (familyMax <= 0) return false;
+  if (w >= familyMax * 0.35) return false;
+  return w < 15 || w < familyMax * 0.2;
+}
+
+function compareHeadings(a, b, familyMax) {
+  const sa = isSchoolHeading(a) ? 1 : 0;
+  const sb = isSchoolHeading(b) ? 1 : 0;
+  if (sa !== sb) return sa - sb;
+  const ra = parseBoardSort(a);
+  const rb = parseBoardSort(b);
+  if (ra.kind !== rb.kind) return ra.kind - rb.kind;
+  if (ra.base !== rb.base) return ra.base.localeCompare(rb.base, "en");
+  const da = String(a.routeDirection || "").toLowerCase();
+  const db = String(b.routeDirection || "").toLowerCase();
+  if (da !== db) return da.localeCompare(db, "en");
+  const max = familyMax || new Map();
+  const sparseA = isSparseHeading(a, max.get(headingFamilyKey(a)) || 0) ? 1 : 0;
+  const sparseB = isSparseHeading(b, max.get(headingFamilyKey(b)) || 0) ? 1 : 0;
+  if (sparseA !== sparseB) return sparseA - sparseB;
+  const wa = headingTripWeight(a);
+  const wb = headingTripWeight(b);
+  if (sparseA && sparseB && wa !== wb) return wb - wa;
+  if (ra.variant !== rb.variant) return ra.variant - rb.variant;
+  if (wa !== wb) return wb - wa;
+  return String((a.board && a.board.dest) || a.dest || "").localeCompare(
+    String((b.board && b.board.dest) || b.dest || ""),
+    "en"
+  );
+}
+
+function sortHeadings(headings) {
+  const list = (headings || []).slice();
+  const familyMax = new Map();
+  for (const h of list) {
+    const k = headingFamilyKey(h);
+    familyMax.set(k, Math.max(familyMax.get(k) || 0, headingTripWeight(h)));
+  }
+  return list.sort((a, b) => compareHeadings(a, b, familyMax));
 }
 
 function mergeDaySchedules(monThu, friday, saturday, sunday) {
@@ -603,7 +729,7 @@ function mergeDaySchedules(monThu, friday, saturday, sunday) {
   buckets.sort((a, b) => Math.min(...a.days.map((d) => rank[d])) - Math.min(...b.days.map((d) => rank[d])));
   return buckets.map((b) => {
     const named = labelDayCluster(b.days);
-    return { ...named, deps: b.deps };
+    return { ...named, deps: b.deps, days: b.days };
   });
 }
 
@@ -783,12 +909,12 @@ function collectPosterData(routeId, stopCode) {
         routeColor: colors.bg,
         routeTextColor: colors.ink,
         routeShortName: route.route_short_name,
+        school: isSchoolSupplement(route),
       };
     })
     .filter(Boolean);
 
-  const mergedHeadings = mergeCloseTermini(headings);
-  mergedHeadings.sort((a, b) => b.weekdayCount - a.weekdayCount || a.earliest - b.earliest);
+  const mergedHeadings = sortHeadings(mergeCloseTermini(headings));
 
   return {
     stop,
@@ -891,6 +1017,15 @@ function resolveRouteList(routeArg, stop) {
   return picked;
 }
 
+function headingsFromParts(parts) {
+  return (parts || []).flatMap((p) =>
+    (p.headings || []).map((h) => ({
+      ...h,
+      school: !!(h.school || p.school || (p.route && isSchoolSupplement(p.route))),
+    }))
+  );
+}
+
 function collectMultiPosterData(routeList, stopCode) {
   const parts = [];
   for (const r of routeList) {
@@ -901,7 +1036,7 @@ function collectMultiPosterData(routeList, stopCode) {
     }
   }
   if (!parts.length) throw new Error(`No pickup trips at stop ${stopCode} for those routes`);
-  const headings = parts.flatMap((p) => p.headings);
+  const headings = sortHeadings(mergeCloseTermini(headingsFromParts(parts)));
   const notes = [...new Set(parts.map((p) => routeServiceNote(p.route)).filter(Boolean))];
   return {
     stop: parts[0].stop,
@@ -916,11 +1051,16 @@ function collectMultiPosterData(routeList, stopCode) {
 
 function mergePosterParts(parts) {
   if (!parts.length) throw new Error("No routes selected");
+  const headings = sortHeadings(mergeCloseTermini(headingsFromParts(parts)));
   if (parts.length === 1) {
     const p = parts[0];
-    return { ...p, routes: p.routes && p.routes.length ? p.routes : [p.route], multi: false };
+    return {
+      ...p,
+      headings,
+      routes: p.routes && p.routes.length ? p.routes : [p.route],
+      multi: false,
+    };
   }
-  const headings = parts.flatMap((p) => p.headings);
   const notes = [...new Set(parts.map((p) => p.routeNote || routeServiceNote(p.route)).filter(Boolean))];
   return {
     stop: parts[0].stop,
@@ -1225,8 +1365,9 @@ function oneColTable(col, hours, headerLabel) {
       </tr>`;
     })
     .join("\n");
-  const label = headerLabel || col.label;
-  const title = label !== col.label ? ` title="${escapeHtml(col.label)}"` : "";
+  const full = columnDayLabel(col);
+  const label = headerLabel || full;
+  const title = label !== full ? ` title="${escapeHtml(full)}"` : "";
   const wknd = isWeekendColumn(col) ? " class=\"wknd\"" : "";
   return `<table class="tt">
     <thead><tr><th></th><th${title}${wknd}>${escapeHtml(label)}${col.sub ? `<span class="sub">${escapeHtml(col.sub)}</span>` : ""}</th></tr></thead>
@@ -1277,8 +1418,9 @@ function tableHtml(heading) {
   const widths = mins.map((m) => m + extra / n);
   const tables = columns
     .map((col, i) => {
-      const short = headerTextWidthIn(col.label) > widths[i] - 0.54;
-      return oneColTable(col, hours, short ? abbreviateDayLabel(col.label) : col.label);
+      const full = columnDayLabel(col);
+      const short = headerTextWidthIn(full) > widths[i] - 0.54;
+      return oneColTable(col, hours, short ? abbreviateDayLabel(full) : full);
     })
     .join("");
   const cols = mins.map((w) => `minmax(${w.toFixed(2)}in, 1fr)`).join(" ");
@@ -1378,9 +1520,201 @@ function qrSvgWithLogo(text) {
   </svg>`;
 }
 
+const POSTER_CHROME_SCRIPT = String.raw`
+(function () {
+  function inchPx() {
+    var probe = document.createElement("div");
+    probe.style.cssText = "position:absolute;left:-9999px;width:1in;height:1in";
+    document.body.appendChild(probe);
+    var inch = probe.offsetHeight || 96;
+    document.body.removeChild(probe);
+    return inch;
+  }
+  function sheetInches() {
+    var sheet = document.querySelector(".sheet");
+    if (!sheet) return { w: 8.5, h: 11 };
+    var inch = inchPx();
+    return { w: 8.5, h: Math.max(0.5, sheet.offsetHeight / inch) };
+  }
+  function sizeNote() {
+    var sheet = document.querySelector(".sheet");
+    var el = document.getElementById("page-count");
+    if (!sheet || !el) return;
+    var dim = sheetInches();
+    var n = Math.max(1, Math.ceil(dim.h / 11));
+    sheet.setAttribute("data-pages", String(n));
+    el.textContent = dim.h.toFixed(2) + " inches tall, 8.5 inches wide";
+  }
+  function pdfFilename() {
+    var sheet = document.querySelector(".sheet");
+    var slug = sheet && sheet.getAttribute("data-pdf-name");
+    return (slug || "timetable") + ".pdf";
+  }
+  function loadHtml2Canvas() {
+    if (window.html2canvas) return Promise.resolve();
+    var urls = [
+      "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+      "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+    ];
+    function one(src) {
+      return new Promise(function (resolve, reject) {
+        var s = document.createElement("script");
+        s.src = src;
+        s.onload = resolve;
+        s.onerror = function () { reject(new Error("Could not load PDF helper")); };
+        document.head.appendChild(s);
+      });
+    }
+    return one(urls[0]).catch(function () { return one(urls[1]); });
+  }
+  function asciiBytes(str) {
+    var u = new Uint8Array(str.length);
+    for (var i = 0; i < str.length; i++) u[i] = str.charCodeAt(i) & 255;
+    return u;
+  }
+  function concatBytes(chunks) {
+    var n = 0, i, out, o = 0;
+    for (i = 0; i < chunks.length; i++) n += chunks[i].length;
+    out = new Uint8Array(n);
+    for (i = 0; i < chunks.length; i++) { out.set(chunks[i], o); o += chunks[i].length; }
+    return out;
+  }
+  function jpegToPdf(jpeg, imgW, imgH) {
+    var pageW = 8.5 * 72;
+    var pageH = pageW * (imgH / imgW);
+    var nl = String.fromCharCode(10);
+    var content = "q" + nl + pageW.toFixed(2) + " 0 0 " + pageH.toFixed(2) + " 0 0 cm" + nl + "/Im0 Do" + nl + "Q" + nl;
+    var pieces = [asciiBytes("%PDF-1.4" + nl + "%" + String.fromCharCode(226, 227, 207, 211) + nl)];
+    var offsets = [0];
+    var offset = pieces[0].length;
+    function addObj(body) {
+      offsets.push(offset);
+      var bytes = typeof body === "string" ? asciiBytes(body) : body;
+      pieces.push(bytes);
+      offset += bytes.length;
+    }
+    addObj("1 0 obj" + nl + "<< /Type /Catalog /Pages 2 0 R >>" + nl + "endobj" + nl);
+    addObj("2 0 obj" + nl + "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" + nl + "endobj" + nl);
+    addObj(
+      "3 0 obj" + nl + "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
+        pageW.toFixed(2) + " " + pageH.toFixed(2) +
+        "] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>" + nl + "endobj" + nl
+    );
+    addObj(concatBytes([
+      asciiBytes(
+        "4 0 obj" + nl + "<< /Type /XObject /Subtype /Image /Width " + imgW +
+          " /Height " + imgH +
+          " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " +
+          jpeg.length + " >>" + nl + "stream" + nl
+      ),
+      jpeg,
+      asciiBytes(nl + "endstream" + nl + "endobj" + nl)
+    ]));
+    addObj(
+      "5 0 obj" + nl + "<< /Length " + content.length + " >>" + nl + "stream" + nl + content + "endstream" + nl + "endobj" + nl
+    );
+    var xrefStart = offset;
+    var xref = "xref" + nl + "0 6" + nl + "0000000000 65535 f " + nl;
+    for (var i = 1; i < offsets.length; i++) {
+      xref += ("0000000000" + offsets[i]).slice(-10) + " 00000 n " + nl;
+    }
+    pieces.push(asciiBytes(
+      xref + "trailer" + nl + "<< /Size 6 /Root 1 0 R >>" + nl + "startxref" + nl + xrefStart + nl + "%%EOF" + nl
+    ));
+    return concatBytes(pieces);
+  }
+  function downloadBlob(bytes, name, type) {
+    var blob = new Blob([bytes], { type: type });
+    var a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 1500);
+  }
+  function pickSaveFile(name) {
+    if (!window.showSaveFilePicker) return Promise.resolve(null);
+    return window.showSaveFilePicker({
+      suggestedName: name,
+      types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }]
+    }).catch(function (err) {
+      if (err && err.name === "AbortError") throw err;
+      return null;
+    });
+  }
+  function writeHandle(handle, bytes) {
+    return handle.createWritable().then(function (writable) {
+      return writable.write(bytes).then(function () { return writable.close(); });
+    });
+  }
+  function saveAsPdf() {
+    var btn = document.getElementById("download-pdf");
+    var sheet = document.querySelector(".sheet");
+    if (!sheet) return;
+    var name = pdfFilename();
+    pickSaveFile(name).then(function (handle) {
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+      }
+      var waitFonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+      return waitFonts
+        .then(function () { return loadHtml2Canvas(); })
+        .then(function () {
+          var maxPx = 8192;
+          var scale = Math.min(2, maxPx / Math.max(1, sheet.offsetHeight), maxPx / Math.max(1, sheet.offsetWidth));
+          return window.html2canvas(sheet, {
+            scale: scale,
+            backgroundColor: "#ffffff",
+            useCORS: true,
+            logging: false,
+            scrollX: 0,
+            scrollY: 0,
+            windowWidth: sheet.scrollWidth,
+            windowHeight: sheet.scrollHeight,
+            onclone: function (doc) {
+              var clone = doc.querySelector(".sheet");
+              if (clone) {
+                clone.style.margin = "0";
+                clone.style.overflow = "hidden";
+              }
+            }
+          });
+        })
+        .then(function (canvas) {
+          var jpegB64 = canvas.toDataURL("image/jpeg", 0.93).split(",")[1];
+          var bin = atob(jpegB64);
+          var jpeg = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
+          var pdf = jpegToPdf(jpeg, canvas.width, canvas.height);
+          if (handle) return writeHandle(handle, pdf);
+          downloadBlob(pdf, name, "application/pdf");
+        });
+    }).catch(function (err) {
+      if (err && err.name === "AbortError") return;
+      console.error(err);
+      alert("Could not save PDF. Try Print and choose Save as PDF.");
+    }).then(function () {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "Save as PDF";
+      }
+    });
+  }
+  var pdfBtn = document.getElementById("download-pdf");
+  if (pdfBtn) pdfBtn.addEventListener("click", saveAsPdf);
+  sizeNote();
+  if (document.readyState !== "complete") window.addEventListener("load", sizeNote);
+  window.addEventListener("resize", sizeNote);
+})();
+`;
+
 function renderPoster(data) {
   const { stop, route, feed } = data;
-  const headings = mergeCloseTermini(data.headings);
+  const headings = sortHeadings(mergeCloseTermini(data.headings));
   const routes = data.routes && data.routes.length ? data.routes : [route];
   const multi = routes.length > 1;
   const firstColors = resolveRouteColors(route);
@@ -1396,6 +1730,10 @@ function renderPoster(data) {
   const showTo = POSTER_OPTS.showTo !== false;
   const hbClass = POSTER_OPTS.headboardStyle === "plain" ? "headboard plain" : "headboard";
   const stopNo = publicStopCode(stop);
+  const pdfSlug =
+    routes.length <= 4
+      ? `${routes.map((r) => String(r.route_short_name || "route").toLowerCase()).join("-")}-${stopNo}`
+      : `all-${stopNo}`;
 
   const predUrl = stopPredictionUrl(stopNo);
   const qr = data.qrSvg || qrSvgFromBits(data.qrBits) || (predUrl ? qrSvgWithLogo(predUrl) : "");
@@ -1508,6 +1846,7 @@ function renderPoster(data) {
       padding: 0.28in 0.34in 0.2in 0.42in;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
     @media screen {
       .sheet { margin-bottom: 28px; }
@@ -1597,12 +1936,12 @@ function renderPoster(data) {
     .qr-block a { color: inherit; text-decoration: none; display: block; }
     .qr-block svg { width: 0.92in; height: 0.92in; display: block; margin: 0 auto; }
     .qr-block .qr-cap {
-      font-size: 7.5px;
-      letter-spacing: 0.08em;
+      font-size: 6.5px;
+      letter-spacing: 0.05em;
       text-transform: uppercase;
       font-weight: 700;
-      margin-top: 3px;
-      line-height: 1.2;
+      margin-top: 2px;
+      line-height: 1.1;
       color: var(--muted);
     }
 
@@ -1801,6 +2140,7 @@ function renderPoster(data) {
     }
     table.tt thead th.wknd {
       font-style: italic;
+      font-weight: 400;
     }
     table.tt thead th .sub {
       display: block;
@@ -1897,13 +2237,14 @@ function renderPoster(data) {
 <body data-clock="12">
   <script>if (new URLSearchParams(location.search).has("shot")) document.body.classList.add("shot");</script>
   <div class="chrome">
-    <button type="button" onclick="window.print()">Print / save PDF</button>
+    <button type="button" onclick="window.print()">Print</button>
+    <button type="button" id="download-pdf">Save as PDF</button>
     <label><input type="radio" name="clock" value="12" checked onchange="document.body.dataset.clock='12'" /> 12-hour</label>
     <label><input type="radio" name="clock" value="24" onchange="document.body.dataset.clock='24'" /> 24-hour</label>
-    <span class="hint" id="page-count">Letter · measuring pages…</span>
+    <span class="hint" id="page-count">Measuring size…</span>
   </div>
 
-  <article class="sheet${multi ? " multi" : ""}" data-headings="${headings.length}">
+  <article class="sheet${multi ? " multi" : ""}" data-headings="${headings.length}" data-pdf-name="${escapeHtml(pdfSlug)}">
     <header class="mast">
       ${badges}
       <div class="ident">
@@ -1914,9 +2255,9 @@ function renderPoster(data) {
       ${
         qr
           ? `<div class="qr-block">
-        <a href="${escapeHtml(predUrl)}" target="_blank" rel="noopener" title="${escapeHtml(POSTER_OPTS.qrCaption || "Live departures")}">
+        <a href="${escapeHtml(predUrl)}" target="_blank" rel="noopener" title="${escapeHtml((POSTER_OPTS.qrCaption || "Live departures from this stop").replace(/\s+/g, " "))}">
           ${qr}
-          <div class="qr-cap">${escapeHtml(POSTER_OPTS.qrCaption || "Live departures")}</div>
+          <div class="qr-cap">${(POSTER_OPTS.qrCaption || "Live departures\nfrom this stop").split(/\n/).map((line) => escapeHtml(line)).join("<br />")}</div>
         </a>
       </div>`
           : `<div class="qr-block"></div>`
@@ -1933,24 +2274,7 @@ function renderPoster(data) {
     </footer>
   </article>
   <script>
-    (function () {
-      function pages() {
-        var sheet = document.querySelector(".sheet");
-        var el = document.getElementById("page-count");
-        if (!sheet || !el) return;
-        var probe = document.createElement("div");
-        probe.style.cssText = "position:absolute;left:-9999px;width:1in;height:1in";
-        document.body.appendChild(probe);
-        var inch = probe.offsetHeight || 96;
-        document.body.removeChild(probe);
-        var n = Math.max(1, Math.ceil(sheet.offsetHeight / (11 * inch)));
-        sheet.setAttribute("data-pages", String(n));
-        el.textContent = n === 1 ? "Letter · 1 page" : "Letter · " + n + " pages";
-      }
-      if (document.readyState === "complete") pages();
-      else window.addEventListener("load", pages);
-      window.addEventListener("resize", pages);
-    })();
+${POSTER_CHROME_SCRIPT}
   </script>
 </body>
 </html>

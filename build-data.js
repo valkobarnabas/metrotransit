@@ -65,6 +65,7 @@ function slimHeading(h) {
     routeColor: h.routeColor,
     routeTextColor: h.routeTextColor,
     routeShortName: h.routeShortName,
+    school: !!h.school,
   };
 }
 
