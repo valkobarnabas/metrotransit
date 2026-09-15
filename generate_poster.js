@@ -1664,8 +1664,8 @@ const POSTER_CHROME_SCRIPT = String.raw`
       return waitFonts
         .then(function () { return loadHtml2Canvas(); })
         .then(function () {
-          var maxPx = 8192;
-          var scale = Math.min(2, maxPx / Math.max(1, sheet.offsetHeight), maxPx / Math.max(1, sheet.offsetWidth));
+          var maxPx = 16384;
+          var scale = Math.min(3.125, maxPx / Math.max(1, sheet.offsetHeight), maxPx / Math.max(1, sheet.offsetWidth));
           return window.html2canvas(sheet, {
             scale: scale,
             backgroundColor: "#ffffff",
@@ -1685,7 +1685,7 @@ const POSTER_CHROME_SCRIPT = String.raw`
           });
         })
         .then(function (canvas) {
-          var jpegB64 = canvas.toDataURL("image/jpeg", 0.93).split(",")[1];
+          var jpegB64 = canvas.toDataURL("image/jpeg", 0.97).split(",")[1];
           var bin = atob(jpegB64);
           var jpeg = new Uint8Array(bin.length);
           for (var i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
