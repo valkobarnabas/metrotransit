@@ -167,6 +167,43 @@ function generate() {
   }
 }
 
+function fitPreview() {
+  const doc = preview.contentDocument;
+  if (!doc || !doc.body) return;
+  const sheet = doc.querySelector(".sheet");
+  const h = sheet
+    ? Math.ceil(sheet.offsetTop + sheet.offsetHeight + 32)
+    : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+  preview.style.height = h + "px";
+  const needX = !!(sheet && preview.clientWidth + 1 < sheet.offsetWidth);
+  preview.style.overflowX = needX ? "auto" : "hidden";
+  preview.style.overflowY = "hidden";
+  const innerOverflow = needX ? "visible" : "hidden";
+  doc.documentElement.style.overflow = innerOverflow;
+  doc.body.style.overflow = innerOverflow;
+  doc.body.style.minWidth = needX && sheet ? sheet.offsetWidth + "px" : "";
+  if (needX) preview.style.height = h + 16 + "px";
+}
+
+preview.addEventListener("load", () => {
+  fitPreview();
+  const doc = preview.contentDocument;
+  if (!doc) return;
+  if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(fitPreview);
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => fitPreview());
+    ro.observe(doc.body);
+    const sheet = doc.querySelector(".sheet");
+    if (sheet) ro.observe(sheet);
+  }
+  for (const el of doc.querySelectorAll('input[name="clock"]')) {
+    el.addEventListener("change", () => setTimeout(fitPreview, 0));
+  }
+});
+window.addEventListener("resize", () => {
+  if (!outEl.hidden) fitPreview();
+});
+
 function download() {
   if (!lastHtml || !selected) return;
   const names = chosenNames().map((n) => n.toLowerCase());

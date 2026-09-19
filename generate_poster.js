@@ -1741,11 +1741,9 @@ const POSTER_CHROME_SCRIPT = String.raw`
     for (i = 0; i < chunks.length; i++) { out.set(chunks[i], o); o += chunks[i].length; }
     return out;
   }
-  function jpegToPdf(jpeg, imgW, imgH) {
-    var pageW = 8.5 * 72;
-    var pageH = pageW * (imgH / imgW);
+  function jpegsToPdf(pages) {
+    if (!pages || !pages.length) return new Uint8Array(0);
     var nl = String.fromCharCode(10);
-    var content = "q" + nl + pageW.toFixed(2) + " 0 0 " + pageH.toFixed(2) + " 0 0 cm" + nl + "/Im0 Do" + nl + "Q" + nl;
     var pieces = [asciiBytes("%PDF-1.4" + nl + "%" + String.fromCharCode(226, 227, 207, 211) + nl)];
     var offsets = [0];
     var offset = pieces[0].length;
@@ -1755,116 +1753,131 @@ const POSTER_CHROME_SCRIPT = String.raw`
       pieces.push(bytes);
       offset += bytes.length;
     }
+    var n = pages.length;
+    var kids = [];
+    var i;
+    for (i = 0; i < n; i++) kids.push((3 + i * 3) + " 0 R");
     addObj("1 0 obj" + nl + "<< /Type /Catalog /Pages 2 0 R >>" + nl + "endobj" + nl);
-    addObj("2 0 obj" + nl + "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" + nl + "endobj" + nl);
-    addObj(
-      "3 0 obj" + nl + "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
-        pageW.toFixed(2) + " " + pageH.toFixed(2) +
-        "] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>" + nl + "endobj" + nl
-    );
-    addObj(concatBytes([
-      asciiBytes(
-        "4 0 obj" + nl + "<< /Type /XObject /Subtype /Image /Width " + imgW +
-          " /Height " + imgH +
-          " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " +
-          jpeg.length + " >>" + nl + "stream" + nl
-      ),
-      jpeg,
-      asciiBytes(nl + "endstream" + nl + "endobj" + nl)
-    ]));
-    addObj(
-      "5 0 obj" + nl + "<< /Length " + content.length + " >>" + nl + "stream" + nl + content + "endstream" + nl + "endobj" + nl
-    );
+    addObj("2 0 obj" + nl + "<< /Type /Pages /Kids [" + kids.join(" ") + "] /Count " + n + " >>" + nl + "endobj" + nl);
+    for (i = 0; i < n; i++) {
+      var pageObj = 3 + i * 3;
+      var imgObj = 4 + i * 3;
+      var contentObj = 5 + i * 3;
+      var pageW = 8.5 * 72;
+      var pageH = pageW * (pages[i].h / pages[i].w);
+      var content = "q" + nl + pageW.toFixed(2) + " 0 0 " + pageH.toFixed(2) + " 0 0 cm" + nl + "/Im0 Do" + nl + "Q" + nl;
+      addObj(
+        pageObj + " 0 obj" + nl + "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
+          pageW.toFixed(2) + " " + pageH.toFixed(2) +
+          "] /Resources << /XObject << /Im0 " + imgObj + " 0 R >> >> /Contents " + contentObj + " 0 R >>" + nl + "endobj" + nl
+      );
+      addObj(concatBytes([
+        asciiBytes(
+          imgObj + " 0 obj" + nl + "<< /Type /XObject /Subtype /Image /Width " + pages[i].w +
+            " /Height " + pages[i].h +
+            " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " +
+            pages[i].jpeg.length + " >>" + nl + "stream" + nl
+        ),
+        pages[i].jpeg,
+        asciiBytes(nl + "endstream" + nl + "endobj" + nl)
+      ]));
+      addObj(
+        contentObj + " 0 obj" + nl + "<< /Length " + content.length + " >>" + nl + "stream" + nl + content + "endstream" + nl + "endobj" + nl
+      );
+    }
     var xrefStart = offset;
-    var xref = "xref" + nl + "0 6" + nl + "0000000000 65535 f " + nl;
-    for (var i = 1; i < offsets.length; i++) {
+    var xref = "xref" + nl + "0 " + offsets.length + nl + "0000000000 65535 f " + nl;
+    for (i = 1; i < offsets.length; i++) {
       xref += ("0000000000" + offsets[i]).slice(-10) + " 00000 n " + nl;
     }
     pieces.push(asciiBytes(
-      xref + "trailer" + nl + "<< /Size 6 /Root 1 0 R >>" + nl + "startxref" + nl + xrefStart + nl + "%%EOF" + nl
+      xref + "trailer" + nl + "<< /Size " + offsets.length + " /Root 1 0 R >>" + nl + "startxref" + nl + xrefStart + nl + "%%EOF" + nl
     ));
     return concatBytes(pieces);
   }
   function downloadBlob(bytes, name, type) {
-    var blob = new Blob([bytes], { type: type });
-    var a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
+    var blob = new Blob([bytes], { type: type || "application/octet-stream" });
+    var url = URL.createObjectURL(blob);
+    var doc = document;
+    try {
+      if (window.parent && window.parent !== window) doc = window.parent.document;
+    } catch (e) {}
+    var a = doc.createElement("a");
+    a.href = url;
     a.download = name;
-    document.body.appendChild(a);
+    a.rel = "noopener";
+    a.style.display = "none";
+    doc.body.appendChild(a);
     a.click();
     setTimeout(function () {
-      URL.revokeObjectURL(a.href);
-      a.remove();
-    }, 1500);
+      URL.revokeObjectURL(url);
+      if (a.parentNode) a.parentNode.removeChild(a);
+    }, 2000);
   }
-  function pickSaveFile(name) {
-    if (!window.showSaveFilePicker) return Promise.resolve(null);
-    return window.showSaveFilePicker({
-      suggestedName: name,
-      types: [{ description: "PDF", accept: { "application/pdf": [".pdf"] } }]
-    }).catch(function (err) {
-      if (err && err.name === "AbortError") throw err;
-      return null;
-    });
-  }
-  function writeHandle(handle, bytes) {
-    return handle.createWritable().then(function (writable) {
-      return writable.write(bytes).then(function () { return writable.close(); });
+  function captureSheet(sheet) {
+    var maxPx = 16384;
+    var scale = Math.min(6.25, maxPx / Math.max(1, sheet.offsetHeight), maxPx / Math.max(1, sheet.offsetWidth));
+    return window.html2canvas(sheet, {
+      scale: scale,
+      backgroundColor: "#ffffff",
+      useCORS: true,
+      logging: false,
+      scrollX: 0,
+      scrollY: 0,
+      windowWidth: sheet.scrollWidth,
+      windowHeight: sheet.scrollHeight,
+      onclone: function (doc) {
+        var clones = doc.querySelectorAll(".sheet");
+        for (var c = 0; c < clones.length; c++) {
+          clones[c].style.margin = "0";
+          clones[c].style.overflow = "hidden";
+        }
+        var chrome = doc.querySelector(".chrome");
+        if (chrome) chrome.style.display = "none";
+      }
+    }).then(function (canvas) {
+      var jpegB64 = canvas.toDataURL("image/jpeg", 0.97).split(",")[1];
+      var bin = atob(jpegB64);
+      var jpeg = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
+      return { jpeg: jpeg, w: canvas.width, h: canvas.height };
     });
   }
   function saveAsPdf() {
     var btn = document.getElementById("download-pdf");
-    var sheet = document.querySelector(".sheet");
-    if (!sheet) return;
+    var sheets = [].slice.call(document.querySelectorAll(".sheet"));
+    if (!sheets.length) return;
     var name = pdfFilename();
-    pickSaveFile(name).then(function (handle) {
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = "Saving…";
-      }
-      var waitFonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
-      return waitFonts
-        .then(function () { return loadHtml2Canvas(); })
-        .then(function () {
-          var maxPx = 16384;
-          var scale = Math.min(3.125, maxPx / Math.max(1, sheet.offsetHeight), maxPx / Math.max(1, sheet.offsetWidth));
-          return window.html2canvas(sheet, {
-            scale: scale,
-            backgroundColor: "#ffffff",
-            useCORS: true,
-            logging: false,
-            scrollX: 0,
-            scrollY: 0,
-            windowWidth: sheet.scrollWidth,
-            windowHeight: sheet.scrollHeight,
-            onclone: function (doc) {
-              var clone = doc.querySelector(".sheet");
-              if (clone) {
-                clone.style.margin = "0";
-                clone.style.overflow = "hidden";
-              }
-            }
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "Saving…";
+    }
+    var waitFonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
+    waitFonts
+      .then(function () { return loadHtml2Canvas(); })
+      .then(function () {
+        var chain = Promise.resolve([]);
+        sheets.forEach(function (sheet) {
+          chain = chain.then(function (pages) {
+            return captureSheet(sheet).then(function (page) {
+              pages.push(page);
+              return pages;
+            });
           });
-        })
-        .then(function (canvas) {
-          var jpegB64 = canvas.toDataURL("image/jpeg", 0.97).split(",")[1];
-          var bin = atob(jpegB64);
-          var jpeg = new Uint8Array(bin.length);
-          for (var i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
-          var pdf = jpegToPdf(jpeg, canvas.width, canvas.height);
-          if (handle) return writeHandle(handle, pdf);
-          downloadBlob(pdf, name, "application/pdf");
         });
-    }).catch(function (err) {
-      if (err && err.name === "AbortError") return;
-      console.error(err);
-      alert("Could not save PDF. Try Print and choose Save as PDF.");
-    }).then(function () {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = "Save as PDF";
-      }
-    });
+        return chain;
+      })
+      .then(function (pages) {
+        downloadBlob(jpegsToPdf(pages), name, "application/pdf");
+        if (btn) btn.textContent = "Save as PDF";
+      })
+      .catch(function (err) {
+        console.error(err);
+        if (btn) btn.textContent = "Couldn’t save";
+      })
+      .then(function () {
+        if (btn) btn.disabled = false;
+      });
   }
   var pdfBtn = document.getElementById("download-pdf");
   if (pdfBtn) pdfBtn.addEventListener("click", saveAsPdf);
@@ -2027,7 +2040,17 @@ function renderPoster(data) {
       gap: 12px;
       align-items: center;
       padding-bottom: 10px;
-      border-bottom: 3px solid var(--route);
+    }
+    .mast-rule {
+      display: flex;
+      align-items: center;
+      height: 8px;
+      margin: 0 0 10px;
+    }
+    .mast-rule span {
+      flex: 1 1 auto;
+      height: 0;
+      border-top: 3px solid var(--route);
     }
     .badges {
       display: grid;
@@ -2108,7 +2131,7 @@ function renderPoster(data) {
     }
 
     .heading {
-      padding-top: 8px;
+      padding-top: 0;
     }
     .heading + .heading {
       margin-top: 6px;
@@ -2446,6 +2469,7 @@ function renderPoster(data) {
           : `<div class="qr-block"></div>`
       }
     </header>
+    <div class="mast-rule" aria-hidden="true"><span></span></div>
 
     ${sections}
 
