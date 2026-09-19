@@ -1707,180 +1707,28 @@ const POSTER_CHROME_SCRIPT = String.raw`
     sheet.setAttribute("data-pages", String(n));
     el.textContent = dim.h.toFixed(2) + " inches tall, 8.5 inches wide";
   }
-  function pdfFilename() {
-    var sheet = document.querySelector(".sheet");
-    var slug = sheet && sheet.getAttribute("data-pdf-name");
-    return (slug || "timetable") + ".pdf";
+  function inIframe() {
+    try { return window.parent && window.parent !== window; } catch (e) { return true; }
   }
-  function loadHtml2Canvas() {
-    if (window.html2canvas) return Promise.resolve();
-    var urls = [
-      "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
-      "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
-    ];
-    function one(src) {
-      return new Promise(function (resolve, reject) {
-        var s = document.createElement("script");
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = function () { reject(new Error("Could not load PDF helper")); };
-        document.head.appendChild(s);
-      });
-    }
-    return one(urls[0]).catch(function () { return one(urls[1]); });
+  function isPhone() {
+    return window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
   }
-  function asciiBytes(str) {
-    var u = new Uint8Array(str.length);
-    for (var i = 0; i < str.length; i++) u[i] = str.charCodeAt(i) & 255;
-    return u;
-  }
-  function concatBytes(chunks) {
-    var n = 0, i, out, o = 0;
-    for (i = 0; i < chunks.length; i++) n += chunks[i].length;
-    out = new Uint8Array(n);
-    for (i = 0; i < chunks.length; i++) { out.set(chunks[i], o); o += chunks[i].length; }
-    return out;
-  }
-  function jpegsToPdf(pages) {
-    if (!pages || !pages.length) return new Uint8Array(0);
-    var nl = String.fromCharCode(10);
-    var pieces = [asciiBytes("%PDF-1.4" + nl + "%" + String.fromCharCode(226, 227, 207, 211) + nl)];
-    var offsets = [0];
-    var offset = pieces[0].length;
-    function addObj(body) {
-      offsets.push(offset);
-      var bytes = typeof body === "string" ? asciiBytes(body) : body;
-      pieces.push(bytes);
-      offset += bytes.length;
-    }
-    var n = pages.length;
-    var kids = [];
-    var i;
-    for (i = 0; i < n; i++) kids.push((3 + i * 3) + " 0 R");
-    addObj("1 0 obj" + nl + "<< /Type /Catalog /Pages 2 0 R >>" + nl + "endobj" + nl);
-    addObj("2 0 obj" + nl + "<< /Type /Pages /Kids [" + kids.join(" ") + "] /Count " + n + " >>" + nl + "endobj" + nl);
-    for (i = 0; i < n; i++) {
-      var pageObj = 3 + i * 3;
-      var imgObj = 4 + i * 3;
-      var contentObj = 5 + i * 3;
-      var pageW = 8.5 * 72;
-      var pageH = pageW * (pages[i].h / pages[i].w);
-      var content = "q" + nl + pageW.toFixed(2) + " 0 0 " + pageH.toFixed(2) + " 0 0 cm" + nl + "/Im0 Do" + nl + "Q" + nl;
-      addObj(
-        pageObj + " 0 obj" + nl + "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " +
-          pageW.toFixed(2) + " " + pageH.toFixed(2) +
-          "] /Resources << /XObject << /Im0 " + imgObj + " 0 R >> >> /Contents " + contentObj + " 0 R >>" + nl + "endobj" + nl
-      );
-      addObj(concatBytes([
-        asciiBytes(
-          imgObj + " 0 obj" + nl + "<< /Type /XObject /Subtype /Image /Width " + pages[i].w +
-            " /Height " + pages[i].h +
-            " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " +
-            pages[i].jpeg.length + " >>" + nl + "stream" + nl
-        ),
-        pages[i].jpeg,
-        asciiBytes(nl + "endstream" + nl + "endobj" + nl)
-      ]));
-      addObj(
-        contentObj + " 0 obj" + nl + "<< /Length " + content.length + " >>" + nl + "stream" + nl + content + "endstream" + nl + "endobj" + nl
-      );
-    }
-    var xrefStart = offset;
-    var xref = "xref" + nl + "0 " + offsets.length + nl + "0000000000 65535 f " + nl;
-    for (i = 1; i < offsets.length; i++) {
-      xref += ("0000000000" + offsets[i]).slice(-10) + " 00000 n " + nl;
-    }
-    pieces.push(asciiBytes(
-      xref + "trailer" + nl + "<< /Size " + offsets.length + " /Root 1 0 R >>" + nl + "startxref" + nl + xrefStart + nl + "%%EOF" + nl
-    ));
-    return concatBytes(pieces);
-  }
-  function downloadBlob(bytes, name, type) {
-    var blob = new Blob([bytes], { type: type || "application/octet-stream" });
-    var url = URL.createObjectURL(blob);
-    var doc = document;
-    try {
-      if (window.parent && window.parent !== window) doc = window.parent.document;
-    } catch (e) {}
-    var a = doc.createElement("a");
-    a.href = url;
-    a.download = name;
-    a.rel = "noopener";
-    a.style.display = "none";
-    doc.body.appendChild(a);
-    a.click();
-    setTimeout(function () {
-      URL.revokeObjectURL(url);
-      if (a.parentNode) a.parentNode.removeChild(a);
-    }, 2000);
-  }
-  function captureSheet(sheet) {
-    var maxPx = 16384;
-    var scale = Math.min(6.25, maxPx / Math.max(1, sheet.offsetHeight), maxPx / Math.max(1, sheet.offsetWidth));
-    return window.html2canvas(sheet, {
-      scale: scale,
-      backgroundColor: "#ffffff",
-      useCORS: true,
-      logging: false,
-      scrollX: 0,
-      scrollY: 0,
-      windowWidth: sheet.scrollWidth,
-      windowHeight: sheet.scrollHeight,
-      onclone: function (doc) {
-        var clones = doc.querySelectorAll(".sheet");
-        for (var c = 0; c < clones.length; c++) {
-          clones[c].style.margin = "0";
-          clones[c].style.overflow = "hidden";
-        }
-        var chrome = doc.querySelector(".chrome");
-        if (chrome) chrome.style.display = "none";
+  function printPoster() {
+    if (inIframe() && isPhone()) {
+      var w = window.open("", "_blank");
+      if (w) {
+        w.document.open();
+        w.document.write("<!DOCTYPE html>\n" + document.documentElement.outerHTML);
+        w.document.close();
+        w.focus();
+        try { w.print(); } catch (e) {}
+        return;
       }
-    }).then(function (canvas) {
-      var jpegB64 = canvas.toDataURL("image/jpeg", 0.97).split(",")[1];
-      var bin = atob(jpegB64);
-      var jpeg = new Uint8Array(bin.length);
-      for (var i = 0; i < bin.length; i++) jpeg[i] = bin.charCodeAt(i);
-      return { jpeg: jpeg, w: canvas.width, h: canvas.height };
-    });
-  }
-  function saveAsPdf() {
-    var btn = document.getElementById("download-pdf");
-    var sheets = [].slice.call(document.querySelectorAll(".sheet"));
-    if (!sheets.length) return;
-    var name = pdfFilename();
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Saving…";
     }
-    var waitFonts = document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve();
-    waitFonts
-      .then(function () { return loadHtml2Canvas(); })
-      .then(function () {
-        var chain = Promise.resolve([]);
-        sheets.forEach(function (sheet) {
-          chain = chain.then(function (pages) {
-            return captureSheet(sheet).then(function (page) {
-              pages.push(page);
-              return pages;
-            });
-          });
-        });
-        return chain;
-      })
-      .then(function (pages) {
-        downloadBlob(jpegsToPdf(pages), name, "application/pdf");
-        if (btn) btn.textContent = "Save as PDF";
-      })
-      .catch(function (err) {
-        console.error(err);
-        if (btn) btn.textContent = "Couldn’t save";
-      })
-      .then(function () {
-        if (btn) btn.disabled = false;
-      });
+    window.print();
   }
-  var pdfBtn = document.getElementById("download-pdf");
-  if (pdfBtn) pdfBtn.addEventListener("click", saveAsPdf);
+  var printBtn = document.getElementById("print-poster");
+  if (printBtn) printBtn.addEventListener("click", printPoster);
   sizeNote();
   if (document.readyState !== "complete") window.addEventListener("load", sizeNote);
   window.addEventListener("resize", sizeNote);
@@ -2443,8 +2291,7 @@ function renderPoster(data) {
 <body data-clock="12">
   <script>if (new URLSearchParams(location.search).has("shot")) document.body.classList.add("shot");</script>
   <div class="chrome">
-    <button type="button" onclick="window.print()">Print</button>
-    <button type="button" id="download-pdf">Save as PDF</button>
+    <button type="button" id="print-poster">Print/Save as PDF</button>
     <label><input type="radio" name="clock" value="12" checked onchange="document.body.dataset.clock='12'" /> 12-hour</label>
     <label><input type="radio" name="clock" value="24" onchange="document.body.dataset.clock='24'" /> 24-hour</label>
     <span class="hint" id="page-count">Measuring size…</span>
