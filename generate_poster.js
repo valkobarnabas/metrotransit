@@ -1272,14 +1272,8 @@ function mastLabels(headings, routes) {
       .map((h) => String((h.board && h.board.code) || short));
     const hasParent = codes.some((c) => c.toUpperCase() === short.toUpperCase());
     const variants = [...new Set(codes.filter((c) => c.toUpperCase() !== short.toUpperCase()))];
-    if (!hasParent && variants.length) {
-      variants.sort((a, b) => {
-        const pa = parseBoardSort({ board: { code: a } });
-        const pb = parseBoardSort({ board: { code: b } });
-        if (pa.variant !== pb.variant) return pa.variant - pb.variant;
-        return String(a).localeCompare(String(b), "en");
-      });
-      for (const name of variants) out.push({ route, name });
+    if (!hasParent && variants.length === 1) {
+      out.push({ route, name: variants[0] });
     } else {
       out.push({ route, name: short });
     }
