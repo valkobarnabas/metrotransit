@@ -1230,11 +1230,11 @@ function routeListPhrase(names) {
   return `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
 }
 
-function timetableKicker(routes) {
-  const names = routes.map((r) => r.route_short_name);
+function timetableKicker(names) {
+  const list = (names || []).map((n) => String(n || "").trim()).filter(Boolean);
   const agency = POSTER_OPTS.agencyName || "Metro Transit";
-  if (names.length <= 1) return `${agency} Route ${names[0]} departures`;
-  return `${agency} Route ${routeListPhrase(names)} departures`;
+  if (list.length <= 1) return `${agency} Route ${list[0] || ""} departures`;
+  return `${agency} Route ${routeListPhrase(list)} departures`;
 }
 
 function badgeGrid(n) {
@@ -1255,12 +1255,36 @@ function badgeGrid(n) {
   return { cols, size, gap };
 }
 
-function routeBadge(route, grid) {
-  const name = route.route_short_name;
+function routeBadge(route, grid, displayName) {
+  const name = String(displayName || route.route_short_name);
   const { bg, ink } = resolveRouteColors(route);
   let font = name.length > 2 ? 42 : name.length > 1 ? 56 : 72;
   font = Math.max(11, Math.round(font * (grid.size / 0.92)));
   return `<div class="badge" style="background:${bg};color:${ink};width:${grid.size}in;height:${grid.size}in;font-size:${font}px" aria-label="Route ${escapeHtml(name)}"><span class="mark">${escapeHtml(name)}</span></div>`;
+}
+
+function mastLabels(headings, routes) {
+  const out = [];
+  for (const route of routes || []) {
+    const short = String(route.route_short_name || "");
+    const codes = (headings || [])
+      .filter((h) => String(h.routeShortName || "").toLowerCase() === short.toLowerCase())
+      .map((h) => String((h.board && h.board.code) || short));
+    const hasParent = codes.some((c) => c.toUpperCase() === short.toUpperCase());
+    const variants = [...new Set(codes.filter((c) => c.toUpperCase() !== short.toUpperCase()))];
+    if (!hasParent && variants.length) {
+      variants.sort((a, b) => {
+        const pa = parseBoardSort({ board: { code: a } });
+        const pb = parseBoardSort({ board: { code: b } });
+        if (pa.variant !== pb.variant) return pa.variant - pb.variant;
+        return String(a).localeCompare(String(b), "en");
+      });
+      for (const name of variants) out.push({ route, name });
+    } else {
+      out.push({ route, name: short });
+    }
+  }
+  return out;
 }
 
 function groupByHour(deps) {
@@ -1739,23 +1763,23 @@ function renderPoster(data) {
   const { stop, route, feed } = data;
   const headings = sortHeadings(mergeCloseTermini(data.headings, data.stop));
   const routes = data.routes && data.routes.length ? data.routes : [route];
+  const labels = mastLabels(headings, routes);
   const multi = routes.length > 1;
   const firstColors = resolveRouteColors(route);
   const color = headings[0]?.routeColor || firstColors.bg;
   const textColor = headings[0]?.routeTextColor || firstColors.ink;
   const lastColor = headings[headings.length - 1]?.routeColor || color;
   const street = streetDirectionLabel(stop);
-  const pack = routes.length;
-  const grid = badgeGrid(pack);
-  const badges = `<div class="badges" style="--badge-cols:${grid.cols};--badge-gap:${grid.gap}in">${routes.map((r) => routeBadge(r, grid)).join("")}</div>`;
-  const kicker = timetableKicker(routes);
+  const grid = badgeGrid(labels.length);
+  const badges = `<div class="badges" style="--badge-cols:${grid.cols};--badge-gap:${grid.gap}in">${labels.map((l) => routeBadge(l.route, grid, l.name)).join("")}</div>`;
+  const kicker = timetableKicker(labels.map((l) => l.name));
   const fonts = POSTER_OPTS.fonts;
   const showTo = POSTER_OPTS.showTo !== false;
   const hbClass = POSTER_OPTS.headboardStyle === "plain" ? "headboard plain" : "headboard";
   const stopNo = publicStopCode(stop);
   const pdfSlug =
-    routes.length <= 4
-      ? `${routes.map((r) => String(r.route_short_name || "route").toLowerCase()).join("-")}-${stopNo}`
+    labels.length <= 4
+      ? `${labels.map((l) => String(l.name || "route").toLowerCase()).join("-")}-${stopNo}`
       : `all-${stopNo}`;
 
   const predUrl = stopPredictionUrl(stopNo);
@@ -1783,8 +1807,13 @@ function renderPoster(data) {
       const headingColor = h.routeColor || color;
       const prev = i > 0 ? headings[i - 1] : null;
       const routeBreak = multi && (!prev || prev.routeShortName !== h.routeShortName);
+      const breakNames = labels.filter((l) => l.route.route_short_name === h.routeShortName);
+      const breakName =
+        breakNames.length === 1
+          ? breakNames[0].name
+          : (breakNames.find((l) => l.name === (h.board && h.board.code)) || {}).name || h.routeShortName;
       const breakLabel = routeBreak
-        ? `<div class="route-break-label">Route ${escapeHtml(h.routeShortName)}</div>`
+        ? `<div class="route-break-label">Route ${escapeHtml(breakName)}</div>`
         : "";
       return `<section class="heading${routeBreak ? " route-break" : ""}" style="--route: ${headingColor}">
         ${breakLabel}
@@ -1805,7 +1834,7 @@ function renderPoster(data) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>${escapeHtml(multi ? `Routes ${routeListPhrase(routes.map((r) => r.route_short_name))}` : `Route ${route.route_short_name}`)} · ${escapeHtml(stop.stop_name)} · ${escapeHtml(stopNo)}</title>
+  <title>${escapeHtml(labels.length > 1 ? `Routes ${routeListPhrase(labels.map((l) => l.name))}` : `Route ${labels[0] ? labels[0].name : route.route_short_name}`)} · ${escapeHtml(stop.stop_name)} · ${escapeHtml(stopNo)}</title>
   ${fav}
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1954,7 +1983,7 @@ function renderPoster(data) {
     }
     .ident .kicker {
       font-size: var(--kicker-size);
-      letter-spacing: ${pack > 3 ? "0.06em" : "0.16em"};
+      letter-spacing: ${labels.length > 3 ? "0.06em" : "0.16em"};
       text-transform: uppercase;
       font-weight: 700;
       color: var(--route);

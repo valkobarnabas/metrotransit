@@ -118,10 +118,12 @@ function showPicked(stop) {
   selected = stop;
   pickedEl.hidden = false;
   resultsEl.hidden = true;
-  qEl.value = `${stop.code}  ${stop.name}`;
-  pickedName.textContent = stop.name;
-  pickedMeta.textContent = `#${stop.code}${stop.street ? ` · ${stop.street}` : ""}${stop.dir ? ` · ${stop.dir}` : ""}`;
+  qEl.value = `${stop.name}  #${stop.code}`;
+  pickedName.textContent = `${stop.name} #${stop.code}`;
+  const street = [stop.dir, stop.street].filter(Boolean).join(" ");
+  pickedMeta.textContent = `Stop #${stop.code}${street ? " · " + street : ""}`;
   allEl.checked = true;
+  outEl.hidden = true;
   routesEl.innerHTML = stop.routes
     .map(
       (r) =>
