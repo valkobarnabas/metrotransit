@@ -1260,7 +1260,7 @@ function routeBadge(route, grid) {
   const { bg, ink } = resolveRouteColors(route);
   let font = name.length > 2 ? 42 : name.length > 1 ? 56 : 72;
   font = Math.max(11, Math.round(font * (grid.size / 0.92)));
-  return `<div class="badge" style="background:${bg};color:${ink};width:${grid.size}in;height:${grid.size}in;font-size:${font}px" aria-label="Route ${escapeHtml(name)}">${escapeHtml(name)}</div>`;
+  return `<div class="badge" style="background:${bg};color:${ink};width:${grid.size}in;height:${grid.size}in;font-size:${font}px" aria-label="Route ${escapeHtml(name)}"><span class="mark">${escapeHtml(name)}</span></div>`;
 }
 
 function groupByHour(deps) {
@@ -1919,6 +1919,12 @@ function renderPoster(data) {
       font-weight: 800;
       line-height: 1;
       letter-spacing: -0.04em;
+    }
+    .badge .mark {
+      display: block;
+      line-height: 1;
+      text-box-trim: trim-both;
+      text-box-edge: cap alphabetic;
     }
     .sheet.multi .heading {
       position: relative;
