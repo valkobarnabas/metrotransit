@@ -119,7 +119,7 @@ function showPicked(stop) {
   pickedEl.hidden = false;
   resultsEl.hidden = true;
   qEl.value = `${stop.name}  #${stop.code}`;
-  pickedName.textContent = `${stop.name} #${stop.code}`;
+  pickedName.textContent = stop.name;
   const street = [stop.dir, stop.street].filter(Boolean).join(" ");
   pickedMeta.textContent = `Stop #${stop.code}${street ? " · " + street : ""}`;
   allEl.checked = true;
