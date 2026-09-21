@@ -7,6 +7,7 @@ const pickedMeta = document.getElementById("picked-meta");
 const routesEl = document.getElementById("routes");
 const allEl = document.getElementById("all");
 const noSchoolEl = document.getElementById("noschool");
+const diagramEl = document.getElementById("diagram");
 const goEl = document.getElementById("go");
 const errEl = document.getElementById("err");
 const outEl = document.getElementById("out");
@@ -157,6 +158,9 @@ function generate() {
     return;
   }
   try {
+    if (P.setPosterOptions) {
+      P.setPosterOptions({ ...(P.posterOptions() || {}), showDiagram: !!(diagramEl && diagramEl.checked) });
+    }
     const data = P.mergePosterParts(parts);
     data.feed = pack.feed;
     data.qrBits = pack.qrBits;
@@ -274,6 +278,11 @@ routesEl.addEventListener("change", () => {
   goEl.disabled = !checked.length;
 });
 
+if (diagramEl) {
+  diagramEl.addEventListener("change", () => {
+    if (selected && !outEl.hidden) generate();
+  });
+}
 goEl.addEventListener("click", generate);
 document.getElementById("save").addEventListener("click", download);
 document.getElementById("open").addEventListener("click", openTab);

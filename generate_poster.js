@@ -246,6 +246,7 @@ const DEFAULT_POSTER_OPTS = {
   qrCaption: "Live departures\nfrom this stop",
   logoDataUri: "",
   findStopBy: "code",
+  showDiagram: true,
   routeColors: {},
   fonts: {
     title: 26,
@@ -1436,6 +1437,7 @@ function spineSvg(heading, nodes) {
 }
 
 function diagramHtml(heading) {
+  if (POSTER_OPTS.showDiagram === false) return "";
   const nodes = headingNodes(heading);
   const w = 740;
   const pad = 46;
@@ -1731,19 +1733,47 @@ const POSTER_CHROME_SCRIPT = String.raw`
   function isPhone() {
     return window.matchMedia && window.matchMedia("(pointer: coarse)").matches;
   }
+  function pdfSlug() {
+    var body = document.body && document.body.getAttribute("data-pdf-name");
+    if (body) return body;
+    var sheet = document.querySelector(".sheet[data-pdf-name]");
+    return (sheet && sheet.getAttribute("data-pdf-name")) || document.title;
+  }
   function printPoster() {
+    var slug = pdfSlug();
+    var prev = document.title;
+    var parentPrev = null;
+    document.title = slug;
+    try {
+      if (window.parent && window.parent !== window) {
+        parentPrev = window.parent.document.title;
+        window.parent.document.title = slug;
+      }
+    } catch (e) {}
+    var restored = false;
+    function restore() {
+      if (restored) return;
+      restored = true;
+      document.title = prev;
+      try { if (parentPrev != null) window.parent.document.title = parentPrev; } catch (e) {}
+      window.removeEventListener("afterprint", restore);
+    }
+    window.addEventListener("afterprint", restore);
     if (inIframe() && isPhone()) {
       var w = window.open("", "_blank");
       if (w) {
         w.document.open();
         w.document.write("<!DOCTYPE html>\n" + document.documentElement.outerHTML);
         w.document.close();
+        w.document.title = slug;
         w.focus();
         try { w.print(); } catch (e) {}
+        restore();
         return;
       }
     }
     window.print();
+    setTimeout(restore, 2500);
   }
   var printBtn = document.getElementById("print-poster");
   if (printBtn) printBtn.addEventListener("click", printPoster);
@@ -2317,7 +2347,7 @@ function renderPoster(data) {
     }
   </style>
 </head>
-<body data-clock="12">
+<body data-clock="12" data-pdf-name="${escapeHtml(pdfSlug)}">
   <script>if (new URLSearchParams(location.search).has("shot")) document.body.classList.add("shot");</script>
   <div class="chrome">
     <button type="button" id="print-poster">Print/Save as PDF</button>
