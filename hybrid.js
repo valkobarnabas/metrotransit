@@ -786,15 +786,6 @@ function renderHybridHtml(opts) {
       align-items: start;
       align-content: start;
     }
-    .daycol + .daycol::before {
-      content: "";
-      position: absolute;
-      top: 0;
-      bottom: 0;
-      left: calc(-0.08in - 0.5px);
-      width: 1px;
-      background: #111;
-    }
     .dayhead {
       grid-column: 1 / -1;
       justify-self: start;
