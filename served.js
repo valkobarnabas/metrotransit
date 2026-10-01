@@ -2048,6 +2048,44 @@ ${POSTER_CHROME_SCRIPT}
 </html>`;
 }
 
+function listSectionHtml(poster, pack) {
+  const body = rowsHtml(
+    poster.rows,
+    poster.stopCode,
+    poster.routeName,
+    poster.radius,
+    pack,
+    poster.locations,
+    poster.excludeSchool
+  );
+  const wide = needsWideStopName(poster) ? " wide-sn" : "";
+  return `<section class="list-block${wide}" style="--route:${escapeHtml(poster.color)};--route-ink:${escapeHtml(poster.ink)}">
+    <div class="next-stops" aria-hidden="true">
+      <span class="ns-line"></span>
+      <span class="ns-mark">
+        <svg viewBox="0 0 10 7" aria-hidden="true"><path d="M0 0h10L5 7z"/></svg>
+        Next Stops
+        <svg viewBox="0 0 10 7" aria-hidden="true"><path d="M0 0h10L5 7z"/></svg>
+      </span>
+      <span class="ns-line"></span>
+    </div>
+    <table class="ss-table">
+      <thead>
+        <tr>
+          <th class="idx">Stops ↓<br />from here</th>
+          <th class="min">Minutes ↓<br />from here</th>
+          <th class="sn">Stop name</th>
+          <th class="xf">Transfer to</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${body}
+      </tbody>
+    </table>
+    ${destNoteHtml(poster.destNote)}
+  </section>`;
+}
+
 function generateServedHtml(pack, stopCode, opts) {
   ensureMapQr(pack);
   const posters = postersForStop(pack, stopCode, opts);
@@ -2144,6 +2182,7 @@ const api = {
   headingWordFromBearing,
   patternsForStop,
   postersForStop,
+  listSectionHtml,
   generateServedHtml,
   uniqueStopsForRoute,
   directionsForRoute,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Stop list generator · Custom Metro Transit posters</title>
+  <title>Hybrid generator · Custom Metro Transit posters</title>
   <link rel="icon" type="image/png" href="data/metrologo-mark.png" />
   <link rel="shortcut icon" type="image/png" href="data/metrologo-mark.png" />
   <link rel="apple-touch-icon" href="data/metrologo-mark.png" />
@@ -16,12 +16,12 @@
   <nav class="site-nav">
     <a class="brand" href="index.html"><img src="data/metrologo-mark.png" alt="" /> Custom Metro Transit posters</a>
     <a href="timetable.html">Timetable generator</a>
-    <a href="stoplist.html" aria-current="page">Stop list generator</a>
-    <a href="hybrid.html">Hybrid generator</a>
+    <a href="stoplist.html">Stop list generator</a>
+    <a href="hybrid.html" aria-current="page">Hybrid generator</a>
   </nav>
   <main class="box">
-    <h1>Stop list generator</h1>
-    <p class="lead">View what stops are served from routes leaving from any stop.</p>
+    <h1>Hybrid generator</h1>
+    <p class="lead">Condensed departure boxes, then the stops still ahead.</p>
 
     <label class="field">
       <span>Stop</span>
@@ -35,7 +35,7 @@
 
       <div class="row">
         <label class="check"><input type="checkbox" id="noschool" checked /> Exclude school extras</label>
-        <label class="check"><input type="checkbox" id="headboard" /> Headboard</label>
+        <label class="check"><input type="checkbox" id="fit" /> Attempt to fit to page</label>
       </div>
       <div id="routes" class="routes"></div>
 
@@ -52,7 +52,25 @@
     <iframe id="preview" title="Poster preview"></iframe>
   </section>
 
-  <script src="served.js"></script>
-  <script src="stoplist.js"></script>
+  <script>
+    async function loadIsolated(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Could not load " + url);
+      new Function(await res.text())();
+    }
+    loadIsolated("generate_poster.js")
+      .then(function () { return loadIsolated("served.js"); })
+      .then(function () {
+        const s = document.createElement("script");
+        s.src = "hybrid.js";
+        document.body.appendChild(s);
+      })
+      .catch(function (err) {
+        const el = document.getElementById("err");
+        if (!el) return;
+        el.hidden = false;
+        el.textContent = err && err.message ? err.message : String(err);
+      });
+  </script>
 </body>
 </html>

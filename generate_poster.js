@@ -2437,6 +2437,7 @@ const posterApi = {
   isSchoolSupplement,
   routesServingStop,
   qrSvgWithLogo,
+  qrSvgFromBits,
   qrBits,
   stopPredictionUrl,
   loadGtfs,

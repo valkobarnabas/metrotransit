@@ -53,6 +53,7 @@ function tipHtml(stop) {
     <div class="tip-actions">
       <a href="timetable.html?stop=${code}">View timetable</a>
       <a href="stoplist.html?stop=${code}">View stop list</a>
+      <a href="hybrid.html?stop=${code}">View hybrid</a>
     </div>
   </div>`;
 }
