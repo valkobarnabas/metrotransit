@@ -800,7 +800,7 @@ function renderHybridHtml(opts) {
     .dayhead.wknd { font-style: italic; font-weight: 400; }
     .band-lab {
       font-size: calc(11.5px * var(--fit));
-      font-weight: 400;
+      font-weight: 600;
       line-height: 1.2;
       padding-top: calc(1px * var(--fit));
     }
@@ -834,11 +834,8 @@ function renderHybridHtml(opts) {
       box-sizing: border-box;
       width: 100%;
       height: var(--box-h);
-      border: 0;
-      border-top: 1px solid #111;
-      border-left: 1px solid #111;
-      box-shadow: 1px 0 0 #111, 0 1px 0 #111, 1px 1px 0 #111;
-      margin: 0;
+      border: 1px solid #111;
+      margin: 0 -1px -1px 0;
       padding: 0;
       display: flex;
       align-items: center;
