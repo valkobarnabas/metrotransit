@@ -196,7 +196,7 @@ function columnDayLabel(col) {
   else if (col.key === "saturday") label = "Saturdays";
   else if (col.key === "sunday") label = "Sundays";
   if (isNightOnlyColumn(col) && !/night/i.test(label)) label = `${label} Night`;
-  return label;
+  return `${label}:`;
 }
 
 function spanLabel(deps) {
@@ -254,24 +254,45 @@ function dayColumnHtml(col) {
   const amInner = boxesHtml(am, "am");
   const pmBoxes = boxesHtml(pm, "pm");
   const rollBoxes = boxesHtml(roll, "roll");
-  const pmInner =
-    pmBoxes && rollBoxes ? `${pmBoxes}<div class="boxes roll-row">${rollBoxes}</div>` : pmBoxes + rollBoxes;
+  const rollInner = rollBoxes ? `<div class="boxes roll-row">${rollBoxes}</div>` : "";
+  const pmInner = pmBoxes + rollInner;
   const wknd = isWeekendColumn(col) ? " wknd" : "";
-  const second = amInner ? "PM:" : pm.length ? "PM:" : "AM:";
+  const mf = col.key === "weekday" ? " mf" : "";
+  const second = amInner ? "PM" : pm.length ? "PM" : "AM";
   return `<div class="daycol">
-    <div class="dayhead${wknd}">${escapeText(columnDayLabel({ ...col, deps }))}:</div>
-    ${amInner ? `<span class="band-lab">AM:</span><div class="boxes">${amInner}</div>` : ""}
+    <div class="dayhead${wknd}${mf}">${escapeText(columnDayLabel({ ...col, deps }))}</div>
+    ${amInner ? `<span class="band-lab">AM</span><div class="boxes">${amInner}</div>` : ""}
     ${pmInner ? `<span class="band-lab">${second}</span><div class="boxes">${pmInner}</div>` : ""}
   </div>`;
 }
 
+function extraHeadsign(h) {
+  const note = h && h.destNote;
+  if (!note || note.type !== "headsign") return "";
+  const sign = String(note.headsign || "").trim();
+  if (sign.toUpperCase() !== "JUNCTION VIA HIGH CROSSING") return "";
+  return sign;
+}
+
+function hideTerminusNote(h) {
+  const note = h && h.destNote;
+  const code = note && note.type === "terminus" ? String(note.stopCode || "") : "";
+  if (code === "2916" || code === "10004") return true;
+  return /Highland at Observatory \(Stop #2916\)|Junction at Park And Ride \(Stop #10004\)/i.test(
+    String((h && h.destFootnote) || "")
+  );
+}
+
 function headingNote(h) {
+  if (extraHeadsign(h) || hideTerminusNote(h)) return "";
   const note = h.destNote;
   if (note && note.type === "headsign") return `*${note.lead || ""}${note.headsign || ""}.`;
   if (note && note.type === "terminus") {
     return `*${note.lead || ""}${note.stopName || ""} (Stop #${note.stopCode || ""}).`;
   }
-  if (h.destFootnote) return `*${h.destFootnote}`;
+  const foot = String(h.destFootnote || "");
+  if (/JUNCTION VIA HIGH CROSSING/i.test(foot)) return "";
+  if (foot) return `*${foot}`;
   return "";
 }
 
@@ -345,8 +366,18 @@ function ledPhrase(dests, className) {
   return joinWords(dests.map((dest) => `<span class="${className}">${dest}</span>`));
 }
 
+function applySplitEnds(html) {
+  const re =
+    /terminate at <span class="term-name">([^<]*)<\/span> on weekdays after (\d+)pm and on weekends, and <span class="term-name">([^<]*)<\/span> otherwise\.(?: The two stops are \d+ feet away from each other\.)?/g;
+  return String(html).replace(
+    re,
+    (match, evening, hour, day) =>
+      `terminate at <span class="term-name">${day}</span> (weekdays until ${hour}pm) or <span class="term-name">${evening}</span> (weekends + after ${hour}pm).`
+  );
+}
+
 function hideSignedTo(html) {
-  let out = String(html).replace(/Trips signed ([\s\S]*?) terminate/g, (match, leds) => {
+  let out = applySplitEnds(String(html)).replace(/Trips signed ([\s\S]*?) terminate/g, (match, leds) => {
     const dests = [];
     const re = /<span class="note-led">([\s\S]*?)<\/span>/g;
     let found;
@@ -386,11 +417,13 @@ function routeLine(heading) {
   const code = (heading.board && heading.board.code) || heading.routeShortName || "";
   const dir = String(heading.routeDirection || "").trim();
   const dest = String((heading.board && heading.board.dest) || "").trim();
+  const also = extraHeadsign(heading);
   return `<div class="hy-head">
     <span class="hy-line">
       <span class="hy-route">Route ${escapeText(code)}:</span>
       ${dir ? `<span class="hy-dir">${escapeText(dir)}</span>` : ""}
       ${dest ? `<span class="hy-towards">towards</span><span class="hy-dest">${escapeText(dest)}</span>` : ""}
+      ${also ? `<span class="hy-and">and</span><span class="hy-dest">${escapeText(also)}</span>` : ""}
     </span>
   </div>`;
 }
@@ -399,7 +432,8 @@ function timeBlockHtml(heading) {
   const columns = heading.columns || [];
   const note = headingNote(heading);
   const cols = Math.max(1, columns.length);
-  return `<section class="hy-block" style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
+  const narrow = isSparse(heading) ? " narrow" : "";
+  return `<section class="hy-block${narrow}" style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
     ${routeLine(heading)}
     <div class="days" style="grid-template-columns:repeat(${cols}, minmax(0, 1fr))">
       ${columns.map(dayColumnHtml).join("")}
@@ -419,23 +453,13 @@ function isSparse(heading) {
   return cols.length > 0 && cols.length <= 2 && shownCount(heading) <= 2;
 }
 
-function pairTrack(heading) {
-  const dest = String((heading.board && heading.board.dest) || "").trim();
-  const dir = String(heading.routeDirection || "").trim();
-  return Math.max(22, 20 + dir.length + Math.round(dest.length * 1.45));
-}
-
 function timesHtml(headings) {
   const parts = [];
   for (let i = 0; i < headings.length; i++) {
     const here = headings[i];
     const next = headings[i + 1];
     if (next && isSparse(here) && isSparse(next)) {
-      const a = pairTrack(here);
-      const b = pairTrack(next);
-      parts.push(
-        `<div class="hy-pair" style="--pair-a:${a};--pair-b:${b};grid-template-columns:${a}fr ${b}fr">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`
-      );
+      parts.push(`<div class="hy-pair">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`);
       i += 1;
     } else {
       parts.push(timeBlockHtml(here));
@@ -555,7 +579,7 @@ function renderHybridHtml(opts) {
     html, body { margin: 0; padding: 0; }
     body { background: var(--desk); color: var(--ink); font-family: "IBM Plex Sans", "Segoe UI", Tahoma, sans-serif; }
     .chrome {
-      width: 8.5in;
+      width: 8.3in;
       margin: 18px auto 10px;
       display: flex;
       gap: 10px;
@@ -578,11 +602,11 @@ function renderHybridHtml(opts) {
     .chrome .hint { color: #333; }
     .sheet {
       position: relative;
-      width: 8.5in;
+      width: 8.3in;
       margin: 0 auto 28px;
       background: var(--paper);
       color: var(--ink);
-      padding: 0.28in 0.34in 0.2in 0.42in;
+      padding: 0.28in 0.34in 0.2in 0.32in;
       display: flex;
       flex-direction: column;
     }
@@ -590,7 +614,7 @@ function renderHybridHtml(opts) {
       content: "";
       position: absolute;
       left: 0; top: 0; bottom: 0;
-      width: 0.24in;
+      width: 0.14in;
       background: var(--route);
     }
     .sheet.bw,
@@ -598,6 +622,7 @@ function renderHybridHtml(opts) {
     .sheet.bw .list-block {
       --route: #5a5a5a !important;
       --route-ink: #fff !important;
+      --led: #fff !important;
     }
     .sheet.bw .badge,
     .sheet.bw .sq {
@@ -680,27 +705,41 @@ function renderHybridHtml(opts) {
       gap: 0.12in 0.16in;
       align-items: start;
     }
-    .hy-block { break-inside: avoid; margin: 0 0 calc(0.16in * var(--fit)); }
+    .hy-block {
+      break-inside: avoid;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin: 0 0 calc(0.16in * var(--fit));
+      background: transparent;
+      border: 0;
+      padding: 0;
+    }
+    .hy-block.narrow { width: max-content; max-width: 100%; }
     .hy-pair {
       position: relative;
       display: grid;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: max-content max-content;
       column-gap: 0.18in;
-      align-items: start;
+      align-items: stretch;
+      width: max-content;
+      max-width: 100%;
       margin: 0 0 calc(0.16in * var(--fit));
     }
-    .hy-pair::before {
+    .hy-pair > .hy-block + .hy-block { position: relative; }
+    .hy-pair > .hy-block + .hy-block::before {
       content: "";
       position: absolute;
       top: 0;
       bottom: 0;
-      left: calc((100% - 0.18in) * var(--pair-a, 1) / (var(--pair-a, 1) + var(--pair-b, 1)) + 0.09in);
+      left: calc(-0.09in - 0.5px);
       width: 1px;
       background: #111;
-      transform: translateX(-0.5px);
     }
-    .hy-pair > .hy-block { margin: 0; }
+    .hy-pair > .hy-block { width: max-content; max-width: 100%; margin: 0; }
+    .hy-pair .hy-head { font-size: calc(11.5px * var(--fit)); }
     .hy-pair .hy-line { flex-wrap: nowrap; }
+    .hy-pair .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: 0.08em; }
     .hy-head {
       display: flex;
       flex-wrap: wrap;
@@ -714,18 +753,19 @@ function renderHybridHtml(opts) {
       display: flex;
       flex: 1 1 100%;
       flex-wrap: wrap;
-      align-items: baseline;
+      align-items: center;
       gap: 0.22em 0.35em;
       width: 100%;
       box-sizing: border-box;
-      border: 1px solid #111;
-      background: var(--route);
-      color: var(--route-ink);
-      padding: 3px 7px 4px;
+      border: 0;
+      border-bottom: 1px solid #111;
+      background: none;
+      color: #111;
+      padding: 0 0 4px;
     }
     .hy-route { font-weight: 700; }
     .hy-dir { font-weight: 400; margin-right: -0.16em; }
-    .hy-towards { color: inherit; }
+    .hy-towards, .hy-and { color: inherit; }
     .hy-dest {
       font-family: "Share Tech Mono", Consolas, monospace;
       letter-spacing: 0.12em;
@@ -762,9 +802,10 @@ function renderHybridHtml(opts) {
       font-weight: 800;
       letter-spacing: 0.04em;
       margin: 0 0 5px;
-      text-decoration: underline;
-      text-underline-offset: 2px;
+      text-decoration: none;
+      line-height: 1.2;
     }
+    .dayhead.mf { font-size: calc((10px + 1pt) * var(--fit)); font-weight: 400; }
     .dayhead.wknd { font-style: italic; font-weight: 400; }
     .band-lab {
       font-size: calc(11.5px * var(--fit));
@@ -772,16 +813,47 @@ function renderHybridHtml(opts) {
       line-height: 1.2;
       padding-top: calc(1px * var(--fit));
     }
-    .boxes { display: flex; flex-wrap: wrap; align-items: stretch; width: 100%; min-width: 0; }
-    .boxes .roll-row { flex: 1 0 100%; width: 100%; min-width: 0; }
+    .boxes {
+      --time-size: calc(11.5px * var(--fit));
+      font-size: var(--time-size);
+      --box: round(3.45em, 1px);
+      --box-h: round(1.2em + 2px, 1px);
+      display: grid;
+      grid-template-columns: repeat(auto-fill, var(--box));
+      justify-content: start;
+      align-items: start;
+      width: 100%;
+      min-width: 0;
+      column-gap: 0;
+      row-gap: 0;
+    }
+    .boxes .roll-row {
+      grid-column: 1 / -1;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      width: 100%;
+      min-width: 0;
+      margin: 0;
+      padding: 0;
+      gap: 0;
+      font-size: var(--time-size);
+    }
     .tbox {
       box-sizing: border-box;
-      width: 3.45em;
-      border: 1px solid #111;
-      margin: 0 -1px -1px 0;
-      padding: calc(1px * var(--fit)) 0;
-      font-size: calc(11.5px * var(--fit));
-      line-height: 1.2;
+      width: 100%;
+      height: var(--box-h);
+      border: 0;
+      border-top: 1px solid #111;
+      border-left: 1px solid #111;
+      box-shadow: 1px 0 0 #111, 0 1px 0 #111, 1px 1px 0 #111;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: var(--time-size);
+      line-height: 1;
       font-weight: 500;
       font-variant-numeric: tabular-nums;
       background: #fff;
@@ -790,12 +862,16 @@ function renderHybridHtml(opts) {
     }
     .tbox.roll {
       width: auto;
-      min-width: 3.45em;
+      min-width: var(--box);
+      max-width: none;
+      flex: 0 0 auto;
+      margin: 0;
       padding-left: 0.22em;
       padding-right: 0.22em;
+      background: #fff;
+      font-weight: 500;
     }
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
-    .tbox.roll { background: #fff; font-weight: 500; }
     .tt-note { margin: 4px 0 0; font-size: calc(10.5px * var(--fit)); line-height: 1.35; color: var(--muted); }
     .ss-table .tt-note { margin: 0; line-height: 1; }
     .list-kicker {
@@ -902,17 +978,16 @@ function renderHybridHtml(opts) {
     .loi { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 600; }
     .loi svg { width: 11px; height: 11px; flex: none; }
     .only-served {
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 0.28em;
+      display: block;
+      min-width: 0;
       margin-top: 1px;
       font-style: italic;
       font-size: 9px;
-      line-height: 1;
+      line-height: 14px;
       color: var(--muted);
+      white-space: normal;
     }
-    .only-cap { font-style: italic; }
+    .only-cap { font-style: italic; white-space: normal; }
     .only-led {
       display: inline-flex;
       align-items: center;
@@ -943,15 +1018,14 @@ function renderHybridHtml(opts) {
       vertical-align: middle;
     }
     .list-block.wide-sn .ss-table .sn { width: 42%; }
-    .list-block.wide-sn .only-served { white-space: nowrap; }
     .note-led {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
-      height: 12px;
+      height: calc((12px + 1pt) * var(--fit));
       font-family: "Share Tech Mono", Consolas, monospace;
-      font-size: 8px;
+      font-size: calc((8px + 1pt) * var(--fit));
       font-weight: 400;
       letter-spacing: 0.05em;
       line-height: 1;
@@ -975,12 +1049,12 @@ function renderHybridHtml(opts) {
       color: var(--muted);
     }
     footer.notes .source { margin-top: 0.15em; }
-    @page { size: letter portrait; margin: 0; }
+    @page { size: letter portrait; margin: 0 0 0.2in 0.2in; }
     @media print {
       html, body { margin: 0; background: #fff !important; }
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body > *:not(.sheet) { display: none !important; }
-      .sheet { margin: 0 !important; }
+      .sheet { width: 8.3in; margin: 0 !important; }
     }
   </style>
 </head>
@@ -1076,7 +1150,35 @@ const FIT_SCRIPT = `
     flow.setAttribute("data-split", "1");
     sheet.classList.add("two-col");
   }
-  var LIMIT = 11;
+  var LIMIT = 10.8;
+  var MARGIN_L = 0.2;
+  var MARGIN_B = 0.2;
+  function tileTimes(sheet) {
+    var nodes = sheet.querySelectorAll(".boxes");
+    var i;
+    for (i = 0; i < nodes.length; i++) {
+      if (!nodes[i].classList.contains("roll-row")) nodes[i].style.gridTemplateColumns = "";
+    }
+    for (i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.classList.contains("roll-row")) continue;
+      var font = parseFloat(getComputedStyle(el).fontSize) || 11.5;
+      var min = Math.max(24, Math.round(3.45 * font));
+      var inner = Math.floor(el.getBoundingClientRect().width);
+      if (!(inner >= min)) continue;
+      var n = Math.max(1, Math.floor(inner / min));
+      var size = Math.floor(inner / n);
+      el.style.setProperty("--box", size + "px");
+      el.style.gridTemplateColumns = "repeat(" + n + ", " + size + "px)";
+    }
+    var rolls = sheet.querySelectorAll(".tbox.roll");
+    for (i = 0; i < rolls.length; i++) rolls[i].style.width = "";
+    for (i = 0; i < rolls.length; i++) {
+      var box = rolls[i];
+      var w = Math.ceil(box.getBoundingClientRect().width - 0.01);
+      if (w > 0) box.style.width = w + "px";
+    }
+  }
   function shrink(sheet) {
     var lo = 0.62;
     var hi = 1;
@@ -1087,18 +1189,22 @@ const FIT_SCRIPT = `
     for (var i = 0; i < 10; i++) {
       var mid = (lo + hi) / 2;
       sheet.style.setProperty("--fit", mid.toFixed(3));
+      tileTimes(sheet);
       if (heightIn() > LIMIT) hi = mid;
       else lo = mid;
     }
     sheet.style.setProperty("--fit", lo.toFixed(3));
+    tileTimes(sheet);
   }
   function note() {
     var el = document.getElementById("page-count");
     var sheet = sheetEl();
     if (!el || !sheet) return;
     var h = heightIn();
-    var pages = h <= LIMIT + 0.02 ? 1 : Math.ceil(h / LIMIT);
-    var text = h.toFixed(2) + " inches tall, 8.5 inches wide";
+    var w = sheet.offsetWidth / inchPx();
+    var paperH = h + MARGIN_B;
+    var pages = paperH <= 11.02 ? 1 : Math.ceil(paperH / 11);
+    var text = paperH.toFixed(2) + " inches tall, " + (w + MARGIN_L).toFixed(2) + " inches wide";
     if (pages > 1) text += " · " + pages + " pages";
     el.textContent = text;
   }
@@ -1127,6 +1233,7 @@ const FIT_SCRIPT = `
     applyTone();
     unsplit(sheet);
     sheet.style.setProperty("--fit", "1");
+    tileTimes(sheet);
     var h = heightIn();
     var lab = box && box.closest("label");
     if (lab) lab.hidden = h <= LIMIT;
@@ -1134,11 +1241,16 @@ const FIT_SCRIPT = `
     if (box && box.checked && h > LIMIT) {
       if (h >= 15) {
         split(sheet);
+        tileTimes(sheet);
         var two = heightIn();
-        if (two > h * 0.95) unsplit(sheet);
+        if (two > h * 0.95) {
+          unsplit(sheet);
+          tileTimes(sheet);
+        }
       }
       if (heightIn() > LIMIT) shrink(sheet);
     }
+    tileTimes(sheet);
     note();
   }
   function printPoster() {
