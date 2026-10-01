@@ -758,12 +758,10 @@ function renderHybridHtml(opts) {
       width: 100%;
       box-sizing: border-box;
       border: 0;
-      border-bottom: 1px solid #111;
       background: none;
       color: #111;
-      padding: 0 0 4px;
+      padding: 0;
     }
-    .flow > .hy-block:only-of-type .hy-line { border-bottom: 0; padding-bottom: 0; }
     .hy-route { font-weight: 700; }
     .hy-dir { font-weight: 400; margin-right: -0.16em; }
     .hy-towards, .hy-and { color: inherit; }
