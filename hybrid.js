@@ -7,8 +7,9 @@ const pickedName = document.getElementById("picked-name");
 const pickedMeta = document.getElementById("picked-meta");
 const routesEl = document.getElementById("routes");
 const noSchoolEl = document.getElementById("noschool");
-const fitEl = document.getElementById("fit");
 const goEl = document.getElementById("go");
+const goTimesEl = document.getElementById("go-times");
+const goStopsEl = document.getElementById("go-stops");
 const errEl = document.getElementById("err");
 const outEl = document.getElementById("out");
 const preview = document.getElementById("preview");
@@ -19,6 +20,9 @@ let servedPack = null;
 let locations = { reviewed: [], stops: {} };
 let selected = null;
 let lastHtml = "";
+let lastPart = "both";
+let lastFit = false;
+let lastBw = false;
 
 function showErr(msg) {
   errEl.hidden = !msg;
@@ -110,13 +114,20 @@ function syncRouteChecks() {
     const first = routeInputs().find((input) => !input.disabled);
     if (first) first.checked = true;
   }
-  goEl.disabled = !chosenNames().length;
+  setGenerateEnabled(chosenNames().length > 0);
 }
 
 function chosenNames() {
   return routeInputs()
     .filter((i) => i.checked && !i.disabled)
     .map((i) => i.dataset.route);
+}
+
+function setGenerateEnabled(on) {
+  const off = !on;
+  goEl.disabled = off;
+  if (goTimesEl) goTimesEl.disabled = off;
+  if (goStopsEl) goStopsEl.disabled = off;
 }
 
 function showPicked(stop) {
@@ -218,9 +229,8 @@ function boxText(dep, band) {
   const h = clockHour(Number(dep.hh));
   const hr = h % 12 || 12;
   const mm = String(Number(dep.mm) || 0).padStart(2, "0");
-  const star = dep.sessionOnly || dep.noteStar ? "<sup>*</sup>" : "";
   const clock = `${hr}:${mm}`;
-  return band === "roll" ? `${clock}am${star}` : `${clock}${star}`;
+  return band === "roll" ? `${clock}am` : clock;
 }
 
 function isWeekendColumn(col) {
@@ -242,7 +252,10 @@ function dayColumnHtml(col) {
   const pm = deps.filter((d) => bandOf(d) === "pm");
   const roll = deps.filter((d) => bandOf(d) === "roll");
   const amInner = boxesHtml(am, "am");
-  const pmInner = boxesHtml(pm, "pm") + boxesHtml(roll, "roll");
+  const pmBoxes = boxesHtml(pm, "pm");
+  const rollBoxes = boxesHtml(roll, "roll");
+  const pmInner =
+    pmBoxes && rollBoxes ? `${pmBoxes}<div class="boxes roll-row">${rollBoxes}</div>` : pmBoxes + rollBoxes;
   const wknd = isWeekendColumn(col) ? " wknd" : "";
   const second = amInner ? "PM:" : pm.length ? "PM:" : "AM:";
   return `<div class="daycol">
@@ -313,16 +326,52 @@ function gapTo(inner) {
     .replace(/ to /g, '<span class="to-gap">T</span>');
 }
 
+function destAfterTo(label) {
+  const text = String(label || "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const match = text.match(/\bTO\b\s+(.+)$/i);
+  return (match ? match[1] : text).trim();
+}
+
+function joinWords(items) {
+  if (items.length <= 1) return items[0] || "";
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function ledPhrase(dests, className) {
+  return joinWords(dests.map((dest) => `<span class="${className}">${dest}</span>`));
+}
+
 function hideSignedTo(html) {
-  return String(html)
-    .replace(/<span class="note-led">([\s\S]*?)<\/span>/g, (match, inner) => {
-      if (!/ TO | to /.test(inner)) return match;
-      return `<span class="note-led">${gapTo(inner)}</span>`;
-    })
-    .replace(/<span class="only-led"><span class="mark">([^<]*)<\/span>/g, (match, inner) => {
-      if (!/ TO | to /.test(inner)) return match;
-      return `<span class="only-led"><span class="mark">${gapTo(inner)}</span>`;
-    });
+  let out = String(html).replace(/Trips signed ([\s\S]*?) terminate/g, (match, leds) => {
+    const dests = [];
+    const re = /<span class="note-led">([\s\S]*?)<\/span>/g;
+    let found;
+    while ((found = re.exec(leds))) {
+      const dest = destAfterTo(found[1]);
+      if (dest) dests.push(dest);
+    }
+    if (!dests.length) return match;
+    return `Trips towards ${ledPhrase(dests, "note-led")} terminate`;
+  });
+  out = out.replace(/<div class="only-served[^"]*">([\s\S]*?)<\/div>/g, (match, inner) => {
+    const dests = [];
+    const re = /<span class="mark">([^<]*)<\/span>/g;
+    let found;
+    while ((found = re.exec(inner))) {
+      const dest = destAfterTo(found[1]);
+      if (dest) dests.push(dest);
+    }
+    if (!dests.length) return match;
+    return `<div class="only-served"><span class="only-cap">(only trips towards ${ledPhrase(dests, "only-led")} serve this stop)</span></div>`;
+  });
+  return out.replace(/<span class="note-led">([\s\S]*?)<\/span>/g, (match, inner) => {
+    if (!/ TO | to /.test(inner)) return match;
+    return `<span class="note-led">${gapTo(inner)}</span>`;
+  });
 }
 
 function listCaption(heading, poster) {
@@ -370,13 +419,23 @@ function isSparse(heading) {
   return cols.length > 0 && cols.length <= 2 && shownCount(heading) <= 2;
 }
 
+function pairTrack(heading) {
+  const dest = String((heading.board && heading.board.dest) || "").trim();
+  const dir = String(heading.routeDirection || "").trim();
+  return Math.max(22, 20 + dir.length + Math.round(dest.length * 1.45));
+}
+
 function timesHtml(headings) {
   const parts = [];
   for (let i = 0; i < headings.length; i++) {
     const here = headings[i];
     const next = headings[i + 1];
     if (next && isSparse(here) && isSparse(next)) {
-      parts.push(`<div class="hy-pair">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`);
+      const a = pairTrack(here);
+      const b = pairTrack(next);
+      parts.push(
+        `<div class="hy-pair" style="--pair-a:${a};--pair-b:${b};grid-template-columns:${a}fr ${b}fr">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`
+      );
       i += 1;
     } else {
       parts.push(timeBlockHtml(here));
@@ -407,6 +466,7 @@ function sourceLine(feed) {
 
 function renderHybridHtml(opts) {
   const fit = !!opts.fit;
+  const bw = !!opts.bw;
   const headings = opts.headings || [];
   const posters = opts.posters || [];
   const used = new Set();
@@ -414,7 +474,6 @@ function renderHybridHtml(opts) {
   const extra = posters.filter((_, index) => !used.has(index));
   const lists = paired.filter((row) => row.poster).map((row) => row);
   extra.forEach((poster) => lists.push({ heading: null, poster }));
-  const anySession = headings.some((h) => (h.columns || []).some((c) => (c.deps || []).some((d) => d.sessionOnly)));
   const first = headings[0] || {};
   const color = first.routeColor || (lists[0] && lists[0].poster.color) || "#333366";
   const ink = first.routeTextColor || "#ffffff";
@@ -444,7 +503,8 @@ function renderHybridHtml(opts) {
     .join("");
   const qr = opts.qr || "";
   const predUrl = opts.predUrl || "";
-  const times = timesHtml(headings);
+  const part = opts.part === "timetable" || opts.part === "stops" ? opts.part : "both";
+  const times = part === "stops" ? "" : timesHtml(headings);
   const manyLists = lists.length > 1;
   const listHtml = lists
     .map((row) => {
@@ -454,6 +514,19 @@ function renderHybridHtml(opts) {
       return `<div class="list-pair">${caption}${hideSignedTo(S.listSectionHtml(row.poster, opts.servedPack))}</div>`;
     })
     .join("\n");
+  const listHtmlOut = part === "timetable" ? "" : listHtml;
+  const mastRule =
+    part === "stops"
+      ? ""
+      : `<div class="mast-rule" aria-hidden="true">
+      <span class="ns-line"></span>
+      <span class="ns-mark">
+        <svg viewBox="0 0 10 7" aria-hidden="true"><path d="M0 0h10L5 7z"/></svg>
+        Timetable
+        <svg viewBox="0 0 10 7" aria-hidden="true"><path d="M0 0h10L5 7z"/></svg>
+      </span>
+      <span class="ns-line"></span>
+    </div>`;
   const slug = `${names.length ? names.join("-").toLowerCase() : "hybrid"}-${code}-hybrid`;
   return `<!DOCTYPE html>
 <html lang="en">
@@ -490,7 +563,7 @@ function renderHybridHtml(opts) {
       flex-wrap: wrap;
       font-size: 13px;
     }
-    .chrome button, .chrome label {
+    .chrome button, .chrome #fit-label {
       background: #fff;
       border: 1px solid #7a7a7a;
       border-radius: 2px;
@@ -498,6 +571,10 @@ function renderHybridHtml(opts) {
       font: inherit;
       cursor: pointer;
     }
+    .chrome #fit-label { display: inline-flex; align-items: center; gap: 6px; }
+    .chrome #fit-label[hidden] { display: none; }
+    .chrome .tone { display: inline-flex; align-items: center; gap: 12px; }
+    .chrome .tone label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
     .chrome .hint { color: #333; }
     .sheet {
       position: relative;
@@ -515,6 +592,17 @@ function renderHybridHtml(opts) {
       left: 0; top: 0; bottom: 0;
       width: 0.24in;
       background: var(--route);
+    }
+    .sheet.bw,
+    .sheet.bw .hy-block,
+    .sheet.bw .list-block {
+      --route: #5a5a5a !important;
+      --route-ink: #fff !important;
+    }
+    .sheet.bw .badge,
+    .sheet.bw .sq {
+      background: #5a5a5a !important;
+      color: #fff !important;
     }
     header.mast {
       display: grid;
@@ -606,12 +694,13 @@ function renderHybridHtml(opts) {
       position: absolute;
       top: 0;
       bottom: 0;
-      left: 50%;
+      left: calc((100% - 0.18in) * var(--pair-a, 1) / (var(--pair-a, 1) + var(--pair-b, 1)) + 0.09in);
       width: 1px;
       background: #111;
       transform: translateX(-0.5px);
     }
     .hy-pair > .hy-block { margin: 0; }
+    .hy-pair .hy-line { flex-wrap: nowrap; }
     .hy-head {
       display: flex;
       flex-wrap: wrap;
@@ -635,7 +724,7 @@ function renderHybridHtml(opts) {
       padding: 3px 7px 4px;
     }
     .hy-route { font-weight: 700; }
-    .hy-dir { font-weight: 400; }
+    .hy-dir { font-weight: 400; margin-right: -0.16em; }
     .hy-towards { color: inherit; }
     .hy-dest {
       font-family: "Share Tech Mono", Consolas, monospace;
@@ -672,7 +761,7 @@ function renderHybridHtml(opts) {
       font-size: calc(10px * var(--fit));
       font-weight: 800;
       letter-spacing: 0.04em;
-      margin: 0 0 3px;
+      margin: 0 0 5px;
       text-decoration: underline;
       text-underline-offset: 2px;
     }
@@ -683,7 +772,8 @@ function renderHybridHtml(opts) {
       line-height: 1.2;
       padding-top: calc(1px * var(--fit));
     }
-    .boxes { display: flex; flex-wrap: wrap; align-items: stretch; min-width: 0; }
+    .boxes { display: flex; flex-wrap: wrap; align-items: stretch; width: 100%; min-width: 0; }
+    .boxes .roll-row { flex: 1 0 100%; width: 100%; min-width: 0; }
     .tbox {
       box-sizing: border-box;
       width: 3.45em;
@@ -707,6 +797,7 @@ function renderHybridHtml(opts) {
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
     .tbox.roll { background: #fff; font-weight: 500; }
     .tt-note { margin: 4px 0 0; font-size: calc(10.5px * var(--fit)); line-height: 1.35; color: var(--muted); }
+    .ss-table .tt-note { margin: 0; line-height: 1; }
     .list-kicker {
       margin: 0.08in 0 2px;
       font-size: calc(12px * var(--fit));
@@ -806,7 +897,7 @@ function renderHybridHtml(opts) {
       color: var(--muted);
       white-space: nowrap;
     }
-    .xfer-stop .walk { width: 11px; height: 11px; flex: none; }
+    .xfer-stop .walk { width: calc(11px * var(--fit)); height: calc(11px * var(--fit)); flex: none; }
     .loi-list { display: flex; flex-wrap: wrap; gap: 2px 8px; }
     .loi { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 600; }
     .loi svg { width: 11px; height: 11px; flex: none; }
@@ -814,42 +905,65 @@ function renderHybridHtml(opts) {
       display: flex;
       align-items: center;
       flex-wrap: wrap;
-      gap: 0.3em;
+      gap: 0.28em;
       margin-top: 1px;
       font-style: italic;
       font-size: 9px;
+      line-height: 1;
       color: var(--muted);
     }
     .only-cap { font-style: italic; }
     .only-led {
       display: inline-flex;
       align-items: center;
-      height: 14px;
+      justify-content: center;
+      box-sizing: border-box;
+      height: 11px;
       font-family: "Share Tech Mono", Consolas, monospace;
       font-style: normal;
-      font-size: 8px;
+      font-size: 7.5px;
       letter-spacing: 0.04em;
+      line-height: 1;
       text-transform: uppercase;
+      text-box-trim: trim-both;
+      text-box-edge: cap alphabetic;
+      transform: translateY(-0.5px);
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
-      padding: 0 0.32em;
+      padding: 0 0.28em;
     }
     .led-plane { width: 0.9em; height: 0.9em; margin: 0 0.12em; vertical-align: -0.12em; }
     .tt-note .term-name { font-weight: 700; color: var(--ink); }
     .tt-note .term-no { font-weight: 500; }
-    tr.end td { padding: calc(0.05in * var(--fit)) 0.08in; background: #fff; font-style: normal; }
+    tr.end td {
+      padding: calc(0.03in * var(--fit)) 0.08in;
+      background: #fff;
+      font-style: normal;
+      vertical-align: middle;
+    }
     .list-block.wide-sn .ss-table .sn { width: 42%; }
     .list-block.wide-sn .only-served { white-space: nowrap; }
     .note-led {
-      display: inline-block;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      height: 12px;
       font-family: "Share Tech Mono", Consolas, monospace;
-      letter-spacing: 0.08em;
+      font-size: 8px;
+      font-weight: 400;
+      letter-spacing: 0.05em;
+      line-height: 1;
       text-transform: uppercase;
+      text-box-trim: trim-both;
+      text-box-edge: cap alphabetic;
+      vertical-align: middle;
+      transform: translateY(-1px);
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
-      padding: 0.12em 0.35em;
+      padding: 0 0.3em;
     }
     .note-led .to-gap,
     .only-led .to-gap { visibility: hidden; }
@@ -873,10 +987,14 @@ function renderHybridHtml(opts) {
 <body data-pdf-name="${escapeText(slug)}">
   <div class="chrome">
     <button type="button" id="print-poster">Print/Save as PDF</button>
-    <label><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
+    <span class="tone">
+      <label><input type="radio" name="tone" value="color"${bw ? "" : " checked"} /> Color</label>
+      <label><input type="radio" name="tone" value="bw"${bw ? " checked" : ""} /> Black and white</label>
+    </span>
+    <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
     <span class="hint" id="page-count">Measuring size…</span>
   </div>
-  <article class="sheet" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
+  <article class="sheet${bw ? " bw" : ""}" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
     <header class="mast">
       <div class="badges">${badges}</div>
       <div class="ident">
@@ -890,21 +1008,13 @@ function renderHybridHtml(opts) {
           : `<div class="qr-block"></div>`
       }
     </header>
-    <div class="mast-rule" aria-hidden="true">
-      <span class="ns-line"></span>
-      <span class="ns-mark">
-        <svg viewBox="0 0 10 7" aria-hidden="true"><path d="M0 0h10L5 7z"/></svg>
-        Timetable
-        <svg viewBox="0 0 10 7" aria-hidden="true"><path d="M0 0h10L5 7z"/></svg>
-      </span>
-      <span class="ns-line"></span>
-    </div>
+    ${mastRule}
     <div class="flow">
       ${times}
-      ${listHtml}
+      ${listHtmlOut}
     </div>
     <footer class="notes">
-      <div>This is a citizen-made stop list intended to improve accessibility, not an official Metro Transit bulletin. Times are trip-weighted averages and may vary at peak and off-hours.${anySession ? " * UW in session only." : ""}</div>
+      <div>This is a citizen-made stop list intended to improve accessibility, not an official Metro Transit bulletin. Times are trip-weighted averages and may vary at peak and off-hours.</div>
       <div class="source">${escapeText(sourceLine(opts.feed || {}))}</div>
     </footer>
   </article>
@@ -992,13 +1102,35 @@ const FIT_SCRIPT = `
     if (pages > 1) text += " · " + pages + " pages";
     el.textContent = text;
   }
+  function toneOn() {
+    var bw = document.querySelector('input[name="tone"][value="bw"]');
+    return !!(bw && bw.checked);
+  }
+  function applyTone() {
+    var sheet = sheetEl();
+    if (sheet) sheet.classList.toggle("bw", toneOn());
+    var box = document.getElementById("fit-page");
+    var lab = box && box.closest("label");
+    report(lab ? !lab.hidden : false, box && box.checked);
+  }
+  function report(tall, fitChecked) {
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ source: "hybrid-fit", tall: tall, fit: !!fitChecked, bw: toneOn() }, "*");
+      }
+    } catch (err) {}
+  }
   function apply() {
     var sheet = sheetEl();
     var box = document.getElementById("fit-page");
     if (!sheet) return;
+    applyTone();
     unsplit(sheet);
     sheet.style.setProperty("--fit", "1");
     var h = heightIn();
+    var lab = box && box.closest("label");
+    if (lab) lab.hidden = h <= LIMIT;
+    report(h > LIMIT, box && box.checked);
     if (box && box.checked && h > LIMIT) {
       if (h >= 15) {
         split(sheet);
@@ -1023,6 +1155,8 @@ const FIT_SCRIPT = `
   if (btn) btn.addEventListener("click", printPoster);
   var fit = document.getElementById("fit-page");
   if (fit) fit.addEventListener("change", apply);
+  var tones = document.querySelectorAll('input[name="tone"]');
+  for (var t = 0; t < tones.length; t++) tones[t].addEventListener("change", applyTone);
   if (document.readyState !== "complete") window.addEventListener("load", apply);
   else apply();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(apply);
@@ -1053,7 +1187,8 @@ function listsFor(names, stopCode) {
   return posters;
 }
 
-function generate() {
+function generate(part) {
+  if (part === "timetable" || part === "stops" || part === "both") lastPart = part;
   showErr("");
   if (!selected) return;
   if (!P || !P.mergePosterParts || !S || !S.listSectionHtml || !S.postersForStop) {
@@ -1088,7 +1223,9 @@ function generate() {
       (predUrl && P.qrSvgWithLogo && P.qrSvgWithLogo(predUrl)) ||
       "";
     lastHtml = renderHybridHtml({
-      fit: !!(fitEl && fitEl.checked),
+      fit: lastFit,
+      bw: lastBw,
+      part: lastPart,
       headings: merged.headings || [],
       posters: servedPack ? listsFor(names, selected.code) : [],
       servedPack,
@@ -1118,6 +1255,14 @@ function fitPreview() {
   preview.style.overflowX = "hidden";
   preview.style.overflowY = "hidden";
 }
+
+window.addEventListener("message", (event) => {
+  if (event.source !== preview.contentWindow) return;
+  const data = event.data;
+  if (!data || data.source !== "hybrid-fit") return;
+  if (typeof data.fit === "boolean") lastFit = data.fit;
+  if (typeof data.bw === "boolean") lastBw = data.bw;
+});
 
 preview.addEventListener("load", () => {
   fitPreview();
@@ -1180,15 +1325,12 @@ noSchoolEl.addEventListener("change", () => {
 });
 
 routesEl.addEventListener("change", () => {
-  goEl.disabled = !chosenNames().length;
+  setGenerateEnabled(chosenNames().length > 0);
 });
 
-if (fitEl) {
-  fitEl.addEventListener("change", () => {
-    if (selected && !outEl.hidden) generate();
-  });
-}
-goEl.addEventListener("click", generate);
+goEl.addEventListener("click", () => generate("both"));
+if (goTimesEl) goTimesEl.addEventListener("click", () => generate("timetable"));
+if (goStopsEl) goStopsEl.addEventListener("click", () => generate("stops"));
 document.getElementById("save").addEventListener("click", download);
 document.getElementById("open").addEventListener("click", openTab);
 

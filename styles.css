@@ -152,6 +152,7 @@ h1 {
   font-size: 14px;
 }
 .check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.check[hidden] { display: none; }
 .map-filter { margin-top: 12px; }
 
 .routes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
@@ -178,7 +179,23 @@ h1 {
   cursor: pointer;
 }
 #go { width: 100%; }
-#go:disabled { background: #999; cursor: not-allowed; }
+#go:disabled, .gen-alt button:disabled { background: #999; color: #fff; cursor: not-allowed; }
+.gen-alt {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.gen-alt button {
+  flex: 1;
+  background: #fff;
+  color: #111;
+  border: 1px solid #7a7a7a;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
 .map-clear { background: #fff; color: #111; border: 1px solid #7a7a7a; margin-top: 12px; }
 
 .err { color: #951f20; font-size: 13px; margin: 10px 0 0; }

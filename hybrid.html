@@ -35,11 +35,14 @@
 
       <div class="row">
         <label class="check"><input type="checkbox" id="noschool" checked /> Exclude school extras</label>
-        <label class="check"><input type="checkbox" id="fit" /> Attempt to fit to page</label>
       </div>
       <div id="routes" class="routes"></div>
 
-      <button type="button" id="go">Generate poster</button>
+      <button type="button" id="go">Generate full poster</button>
+      <div class="gen-alt">
+        <button type="button" id="go-times">Generate just timetable</button>
+        <button type="button" id="go-stops">Generate just stop list</button>
+      </div>
     </section>
     <p id="err" class="err" hidden></p>
   </main>
