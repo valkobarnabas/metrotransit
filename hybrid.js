@@ -801,7 +801,6 @@ function renderHybridHtml(opts) {
     .band-lab {
       font-size: calc(11.5px * var(--fit));
       font-weight: 400;
-      text-transform: lowercase;
       line-height: 1.2;
       padding-top: calc(1px * var(--fit));
     }
