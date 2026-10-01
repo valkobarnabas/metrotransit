@@ -648,12 +648,23 @@ function renderHybridHtml(opts) {
       border: 1px solid #2b2b2b;
       padding: 0.12em 0.38em 0.08em;
     }
-    .days { display: grid; gap: 8px; align-items: start; }
+    .days { display: grid; column-gap: 0.16in; align-items: stretch; }
     .daycol {
+      position: relative;
       display: grid;
       grid-template-columns: auto minmax(0, 1fr);
       column-gap: 0.28em;
       align-items: start;
+      align-content: start;
+    }
+    .daycol + .daycol::before {
+      content: "";
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      left: calc(-0.08in - 0.5px);
+      width: 1px;
+      background: #111;
     }
     .dayhead {
       grid-column: 1 / -1;
