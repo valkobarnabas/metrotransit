@@ -410,7 +410,7 @@ function listCaption(heading, poster) {
   const code = (heading.board && heading.board.code) || heading.routeShortName || poster.routeName || "";
   const dir = String(heading.routeDirection || "").trim();
   const dest = String((heading.board && heading.board.dest) || posterDest(poster) || "").trim();
-  return [`Route ${code}`, dir, dest ? `towards ${dest}` ""].filter(Boolean).join(" ");
+  return [`Route ${code}`, dir, dest ? `towards ${dest}` : ""].filter(Boolean).join(" ");
 }
 
 function routeLine(heading) {
