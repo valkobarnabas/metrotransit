@@ -796,11 +796,12 @@ function renderHybridHtml(opts) {
       text-decoration: none;
       line-height: 1.2;
     }
-    .dayhead.mf { font-size: calc((10px + 1pt) * var(--fit)); font-weight: 400; }
+    .dayhead.mf { font-size: calc((10px + 1pt) * var(--fit)); font-weight: 800; }
     .dayhead.wknd { font-style: italic; font-weight: 400; }
     .band-lab {
       font-size: calc(11.5px * var(--fit));
-      font-weight: 700;
+      font-weight: 400;
+      text-transform: lowercase;
       line-height: 1.2;
       padding-top: calc(1px * var(--fit));
     }
