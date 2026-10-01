@@ -916,6 +916,7 @@ function renderHybridHtml(opts) {
       top: 0; bottom: 0; right: 0;
       width: 1px;
       background: var(--ink);
+      z-index: 1;
     }
     .ss-table td:last-child::before { content: none; }
     .ss-table td::after {
