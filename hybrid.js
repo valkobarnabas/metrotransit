@@ -831,34 +831,34 @@ function renderHybridHtml(opts) {
       font-size: var(--time-size);
     }
     .tbox {
-      box-sizing: border-box;
-      width: 100%;
-      height: var(--box-h);
-      border: 1px solid #111;
-      margin: 0 -1px -1px 0;
-      padding: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: var(--time-size);
-      line-height: 1;
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-      background: #fff;
-      text-align: center;
-      white-space: nowrap;
-    }
+  box-sizing: border-box;
+  width: calc(100% + 1px);
+  height: var(--box-h);
+  border: 1px solid #111;
+  margin: 0 -1px -1px 0;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--time-size);
+  line-height: 1;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  background: #fff;
+  text-align: center;
+  white-space: nowrap;
+}
     .tbox.roll {
-      width: auto;
-      min-width: var(--box);
-      max-width: none;
-      flex: 0 0 auto;
-      margin: 0;
-      padding-left: 0.22em;
-      padding-right: 0.22em;
-      background: #fff;
-      font-weight: 500;
-    }
+  width: auto;
+  min-width: calc(var(--box) + 1px);
+  max-width: none;
+  flex: 0 0 auto;
+  margin: 0 -1px -1px 0;
+  padding-left: 0.22em;
+  padding-right: 0.22em;
+  background: #fff;
+  font-weight: 500;
+}
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
     .tt-note { margin: 4px 0 0; font-size: calc(10.5px * var(--fit)); line-height: 1.35; color: var(--muted); }
     .ss-table .tt-note { margin: 0; line-height: 1; }
