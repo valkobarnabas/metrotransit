@@ -1076,7 +1076,7 @@ function renderHybridHtml(opts) {
       ${listHtmlOut}
     </div>
     <footer class="notes">
-      <div>This is a citizen-made poster intended to improve accessibility, not an official Metro Transit bulletin. Times are trip-weighted averages and may vary at peak and off-hours.</div>
+      <div>This is a citizen-made poster intended to improve accessibility, not an official Metro Transit bulletin.</div>
       <div class="source">${escapeText(sourceLine(opts.feed || {}))}</div>
     </footer>
   </article>
