@@ -420,7 +420,7 @@ function routeLine(heading) {
   const also = extraHeadsign(heading);
   return `<div class="hy-head">
     <span class="hy-line">
-      <span class="hy-route">Route ${escapeText(code)}:</span>
+      <span class="hy-route">Route ${escapeText(code)}</span>
       ${dir ? `<span class="hy-dir">${escapeText(dir)}</span>` : ""}
       ${dest ? `<span class="hy-towards">towards</span><span class="hy-dest">${escapeText(dest)}</span>` : ""}
       ${also ? `<span class="hy-and">and</span><span class="hy-dest">${escapeText(also)}</span>` : ""}
