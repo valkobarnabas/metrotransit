@@ -1037,9 +1037,7 @@ function renderHybridHtml(opts) {
     }
     .only-cap { font-style: italic; white-space: normal; }
     .only-led {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      display: inline-block;
       box-sizing: border-box;
       height: calc(11px * var(--fit));
       font-family: "Share Tech Mono", Consolas, monospace;
@@ -1048,9 +1046,7 @@ function renderHybridHtml(opts) {
       letter-spacing: 0.04em;
       line-height: 1;
       text-transform: uppercase;
-      text-box-trim: trim-both;
-      text-box-edge: cap alphabetic;
-      transform: translateY(-0.5px);
+      vertical-align: middle;
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
@@ -1067,9 +1063,7 @@ function renderHybridHtml(opts) {
     }
     .list-block.wide-sn .ss-table .sn { width: 42%; }
     .note-led {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
+      display: inline-block;
       box-sizing: border-box;
       height: calc((12px + 1pt) * var(--fit));
       font-family: "Share Tech Mono", Consolas, monospace;
@@ -1078,10 +1072,7 @@ function renderHybridHtml(opts) {
       letter-spacing: 0.05em;
       line-height: 1;
       text-transform: uppercase;
-      text-box-trim: trim-both;
-      text-box-edge: cap alphabetic;
       vertical-align: middle;
-      transform: translateY(-1px);
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
@@ -1350,14 +1341,17 @@ const FIT_SCRIPT = `
     var ctx = canvas.getContext("2d");
     ctx.font = cs.font;
     if ("letterSpacing" in ctx) ctx.letterSpacing = cs.letterSpacing;
-    var metrics = ctx.measureText((el.textContent || "").replace(/\s+$/g, ""));
+    var text = (el.textContent || "").replace(/\s+$/g, "");
+    if (cs.textTransform === "uppercase") text = text.toUpperCase();
+    else if (cs.textTransform === "lowercase") text = text.toLowerCase();
+    var metrics = ctx.measureText(text);
     return {
       ascent: metrics.actualBoundingBoxAscent || 0,
       descent: metrics.actualBoundingBoxDescent || 0
     };
   }
   function centerHeads(sheet) {
-    var nodes = sheet.querySelectorAll(".hy-dest");
+    var nodes = sheet.querySelectorAll(".hy-dest, .note-led, .only-led");
     var i;
     for (i = 0; i < nodes.length; i++) {
       nodes[i].style.paddingTop = "";

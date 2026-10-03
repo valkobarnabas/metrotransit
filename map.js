@@ -9,6 +9,7 @@ let stops = [];
 let addressMarker = null;
 let addressHits = [];
 const locked = new Set();
+let hoverCode = null;
 
 const map = L.map("map", { zoomControl: true }).fitBounds(
   [
@@ -302,6 +303,17 @@ async function lookupAddresses() {
   if (addressHits.length === 1 && !searchStops(q).length) chooseAddress(addressHits[0]);
 }
 
+function closeOtherTips(exceptCode) {
+  for (const other of stops) {
+    if (!other.marker || other.code === exceptCode) continue;
+    const tip = other.marker.getTooltip();
+    if (!tip || !tip.isOpen()) continue;
+    other._closing = true;
+    other.marker.closeTooltip();
+    other._closing = false;
+  }
+}
+
 function hookMarker(stop) {
   const marker = L.circleMarker([stop.lat, stop.lon], {
     renderer: canvas,
@@ -325,23 +337,33 @@ function hookMarker(stop) {
   marker.off("click", marker._openTooltip);
   marker.on("mouseover", () => {
     if (stop._suppressHover) return;
-    if (!locked.has(stop.code)) marker.openTooltip();
+    hoverCode = stop.code;
+    closeOtherTips(stop.code);
+    marker.openTooltip();
   });
   marker.on("mouseout", () => {
     window.setTimeout(() => {
       const el = marker.getTooltip()?.getElement();
       if (el && el.matches(":hover")) return;
+      if (hoverCode && hoverCode !== stop.code) return;
+      if (hoverCode === stop.code) hoverCode = null;
       if (locked.has(stop.code)) {
         marker.openTooltip();
+        closeOtherTips(stop.code);
         return;
       }
       stop._suppressHover = false;
       marker.closeTooltip();
+      const pinned = stops.find((s) => locked.has(s.code));
+      if (pinned && pinned.marker) {
+        pinned.marker.openTooltip();
+        closeOtherTips(pinned.code);
+      }
     }, 220);
   });
   marker.on("tooltipclose", () => {
     if (stop._closing || stop._suppressHover) return;
-    if (locked.has(stop.code)) marker.openTooltip();
+    if (locked.has(stop.code) && (!hoverCode || hoverCode === stop.code)) marker.openTooltip();
   });
   marker.on("tooltipopen", () => {
     const el = marker.getTooltip()?.getElement();

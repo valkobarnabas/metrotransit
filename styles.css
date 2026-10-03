@@ -259,7 +259,7 @@ h1 {
 
 .leaflet-tooltip.stop-tip {
   pointer-events: auto;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.92);
   color: #111;
   border: 1px solid #d0d0d0;
   border-left: 4px solid #333366;
@@ -268,7 +268,8 @@ h1 {
   padding: 8px 10px 8px 8px;
   font-family: "IBM Plex Sans", "Segoe UI", Tahoma, sans-serif;
   white-space: normal;
-  max-width: 16rem;
+  width: max-content;
+  max-width: min(40rem, calc(100vw - 2rem));
 }
 .leaflet-tooltip.stop-tip.stop-locked { border-left-color: #111; }
 .leaflet-tooltip-top.stop-tip::before { border-top-color: #d0d0d0; }
@@ -280,7 +281,7 @@ h1 {
   gap: 4px;
   margin-top: 6px;
 }
-.tip-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; margin-top: 8px; }
+.tip-actions { display: flex; flex-wrap: nowrap; gap: 8px 12px; margin-top: 8px; white-space: nowrap; }
 .tip-actions a { color: #333366; font-size: 12px; font-weight: 700; }
 
 @media (max-width: 800px) {
