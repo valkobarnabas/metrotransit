@@ -882,6 +882,12 @@ function renderHybridHtml(opts) {
       gap: 0;
       font-size: var(--time-size);
     }
+    .boxes.roll-fit {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-start;
+      justify-content: flex-start;
+    }
     .tbox {
   box-sizing: border-box;
   width: calc(100% + 1px);
@@ -1307,7 +1313,83 @@ const FIT_SCRIPT = `
       for (c = 0; c < rows[i].children.length; c++) rows[i].children[c].style.minHeight = px;
     }
   }
+  function unwrapRolls(sheet) {
+    var fitted = sheet.querySelectorAll(".boxes.roll-fit");
+    var i, k, rolls, row, kids;
+    for (i = 0; i < fitted.length; i++) {
+      var parent = fitted[i];
+      parent.classList.remove("roll-fit");
+      parent.style.display = "";
+      parent.style.flexWrap = "";
+      parent.style.width = "";
+      parent.style.gridTemplateColumns = "";
+      kids = parent.children;
+      rolls = [];
+      for (k = 0; k < kids.length; k++) {
+        if (!kids[k].classList.contains("tbox")) continue;
+        kids[k].style.flex = "";
+        if (kids[k].classList.contains("roll")) rolls.push(kids[k]);
+        else kids[k].style.width = "";
+      }
+      if (!rolls.length) continue;
+      row = parent.ownerDocument.createElement("div");
+      row.className = "boxes roll-row";
+      for (k = 0; k < rolls.length; k++) row.appendChild(rolls[k]);
+      parent.appendChild(row);
+    }
+  }
+  function fitRolls(sheet) {
+    var rows = sheet.querySelectorAll(".boxes > .roll-row");
+    var i, k, r;
+    for (i = 0; i < rows.length; i++) {
+      var roll = rows[i];
+      var parent = roll.parentElement;
+      if (!parent || parent.closest(".daycol.compact")) continue;
+      var spec = parent.style.gridTemplateColumns || "";
+      var open = spec.indexOf("(");
+      var comma = spec.indexOf(",");
+      var px = spec.indexOf("px");
+      var cols = 0;
+      var size = 0;
+      if (open >= 0 && comma > open && px > comma) {
+        cols = Number(spec.slice(open + 1, comma));
+        size = parseFloat(spec.slice(comma + 1, px));
+      } else {
+        var parts = spec.split(" ").filter(Boolean);
+        cols = parts.length;
+        size = parseFloat(parts[0]);
+      }
+      if (!(cols > 0) || !(size > 0)) continue;
+      var pm = [];
+      var kids = parent.children;
+      for (k = 0; k < kids.length; k++) {
+        if (kids[k].classList.contains("tbox") && !kids[k].classList.contains("roll")) pm.push(kids[k]);
+      }
+      if (!pm.length) continue;
+      var rem = pm.length % cols;
+      if (rem === 0) continue;
+      var rolls = [];
+      var rollKids = roll.children;
+      for (k = 0; k < rollKids.length; k++) {
+        if (rollKids[k].classList.contains("tbox")) rolls.push(rollKids[k]);
+      }
+      if (!rolls.length) continue;
+      var line = cols * size;
+      parent.classList.add("roll-fit");
+      parent.style.display = "flex";
+      parent.style.flexWrap = "wrap";
+      parent.style.width = line + "px";
+      parent.style.gridTemplateColumns = "none";
+      for (k = 0; k < pm.length; k++) {
+        pm[k].style.flex = "0 0 " + size + "px";
+        pm[k].style.width = (size + 1) + "px";
+      }
+      for (r = 0; r < rolls.length; r++) parent.appendChild(rolls[r]);
+      roll.remove();
+    }
+  }
   function tileTimes(sheet) {
+    unwrapRolls(sheet);
     var nodes = sheet.querySelectorAll(".boxes");
     var i;
     for (i = 0; i < nodes.length; i++) {
@@ -1391,6 +1473,7 @@ const FIT_SCRIPT = `
     tileTimes(sheet);
     packDays(sheet);
     tileTimes(sheet);
+    fitRolls(sheet);
     evenStopRows(sheet);
     centerHeads(sheet);
   }
