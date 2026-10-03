@@ -243,7 +243,7 @@ function isWeekendColumn(col) {
 }
 
 function boxesHtml(deps, kind) {
-  return deps.map((dep) => `<span class="tbox ${kind}">${boxText(dep, kind)}</span>`).join("");
+  return deps.map((dep) => `<span class="tbox ${kind}"><span class="tink">${boxText(dep, kind)}</span></span>`).join("");
 }
 
 function dayColumnHtml(col) {
@@ -906,6 +906,11 @@ function renderHybridHtml(opts) {
   text-align: center;
   white-space: nowrap;
 }
+    .tink {
+      display: inline-block;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
     .tbox.roll {
   width: auto;
   min-width: calc(var(--box) + 1px);
@@ -1468,6 +1473,60 @@ const FIT_SCRIPT = `
       }
     }
   }
+  function timeShift(box, ink) {
+    var textNode = ink.firstChild;
+    while (textNode && textNode.nodeType !== 3) textNode = textNode.nextSibling;
+    if (!textNode) return { x: 0, y: 0 };
+    var range = ink.ownerDocument.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, textNode.length);
+    var line = range.getBoundingClientRect();
+    var cs = getComputedStyle(ink);
+    var canvas = ink.ownerDocument.createElement("canvas");
+    var ctx = canvas.getContext("2d");
+    ctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+    var metrics = ctx.measureText(textNode.nodeValue || "");
+    var ascent = metrics.actualBoundingBoxAscent || 0;
+    var descent = metrics.actualBoundingBoxDescent || 0;
+    if (!(ascent > 0)) return { x: 0, y: 0 };
+    var probe = ink.ownerDocument.createElement("span");
+    probe.setAttribute("aria-hidden", "true");
+    probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0;border:0;line-height:0;";
+    ink.appendChild(probe);
+    var baseline = probe.getBoundingClientRect().bottom;
+    probe.remove();
+    var inkMidY = baseline + ((descent - ascent) / 2);
+    var inkMidX = (line.left + line.right) / 2;
+    var b = box.getBoundingClientRect();
+    var bs = getComputedStyle(box);
+    var innerMidX = (b.left + (parseFloat(bs.borderLeftWidth) || 0) + b.right - (parseFloat(bs.borderRightWidth) || 0)) / 2;
+    var innerMidY = (b.top + (parseFloat(bs.borderTopWidth) || 0) + b.bottom - (parseFloat(bs.borderBottomWidth) || 0)) / 2;
+    return { x: innerMidX - inkMidX, y: innerMidY - inkMidY };
+  }
+  function readShift(el) {
+    var t = getComputedStyle(el).transform;
+    if (!t || t === "none") return { x: 0, y: 0 };
+    var m = new DOMMatrix(t);
+    return { x: m.m41, y: m.m42 };
+  }
+  function centerTimes(sheet) {
+    var boxes = sheet.querySelectorAll(".tbox");
+    var i, pass, ink, cur, shift;
+    for (i = 0; i < boxes.length; i++) {
+      ink = boxes[i].querySelector(".tink");
+      if (ink) ink.style.transform = "";
+    }
+    for (pass = 0; pass < 2; pass++) {
+      for (i = 0; i < boxes.length; i++) {
+        ink = boxes[i].querySelector(".tink");
+        if (!ink) continue;
+        shift = timeShift(boxes[i], ink);
+        if (Math.abs(shift.x) < 0.05 && Math.abs(shift.y) < 0.05) continue;
+        cur = readShift(ink);
+        ink.style.transform = "translate(" + (cur.x + shift.x).toFixed(3) + "px, " + (cur.y + shift.y).toFixed(3) + "px)";
+      }
+    }
+  }
   function relayout(sheet) {
     clearCompact(sheet);
     tileTimes(sheet);
@@ -1476,6 +1535,7 @@ const FIT_SCRIPT = `
     fitRolls(sheet);
     evenStopRows(sheet);
     centerHeads(sheet);
+    centerTimes(sheet);
   }
   function shrink(sheet) {
     var lo = 0.62;
