@@ -1473,58 +1473,45 @@ const FIT_SCRIPT = `
       }
     }
   }
-  function timeShift(box, ink) {
+  function timeDy(box, ink, ctx) {
     var textNode = ink.firstChild;
     while (textNode && textNode.nodeType !== 3) textNode = textNode.nextSibling;
-    if (!textNode) return { x: 0, y: 0 };
-    var range = ink.ownerDocument.createRange();
-    range.setStart(textNode, 0);
-    range.setEnd(textNode, textNode.length);
-    var line = range.getBoundingClientRect();
+    if (!textNode) return 0;
     var cs = getComputedStyle(ink);
-    var canvas = ink.ownerDocument.createElement("canvas");
-    var ctx = canvas.getContext("2d");
     ctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
     var metrics = ctx.measureText(textNode.nodeValue || "");
     var ascent = metrics.actualBoundingBoxAscent || 0;
     var descent = metrics.actualBoundingBoxDescent || 0;
-    if (!(ascent > 0)) return { x: 0, y: 0 };
+    if (!(ascent > 0)) return 0;
     var probe = ink.ownerDocument.createElement("span");
     probe.setAttribute("aria-hidden", "true");
     probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0;border:0;line-height:0;";
     ink.appendChild(probe);
     var baseline = probe.getBoundingClientRect().bottom;
     probe.remove();
-    var inkMidY = baseline + ((descent - ascent) / 2);
-    var inkMidX = (line.left + line.right) / 2;
     var b = box.getBoundingClientRect();
     var bs = getComputedStyle(box);
-    var innerMidX = (b.left + (parseFloat(bs.borderLeftWidth) || 0) + b.right - (parseFloat(bs.borderRightWidth) || 0)) / 2;
     var innerMidY = (b.top + (parseFloat(bs.borderTopWidth) || 0) + b.bottom - (parseFloat(bs.borderBottomWidth) || 0)) / 2;
-    return { x: innerMidX - inkMidX, y: innerMidY - inkMidY };
-  }
-  function readShift(el) {
-    var t = getComputedStyle(el).transform;
-    if (!t || t === "none") return { x: 0, y: 0 };
-    var m = new DOMMatrix(t);
-    return { x: m.m41, y: m.m42 };
+    var inkMidY = baseline + ((descent - ascent) / 2);
+    var dy = innerMidY - inkMidY;
+    return Math.abs(dy) < 0.05 ? 0 : Math.round(dy * 1000) / 1000;
   }
   function centerTimes(sheet) {
     var boxes = sheet.querySelectorAll(".tbox");
-    var i, pass, ink, cur, shift;
+    if (!boxes.length) return;
+    var canvas = sheet.ownerDocument.createElement("canvas");
+    var ctx = canvas.getContext("2d");
+    var cache = {};
+    var i, box, ink, cs, key, dy;
     for (i = 0; i < boxes.length; i++) {
-      ink = boxes[i].querySelector(".tink");
-      if (ink) ink.style.transform = "";
-    }
-    for (pass = 0; pass < 2; pass++) {
-      for (i = 0; i < boxes.length; i++) {
-        ink = boxes[i].querySelector(".tink");
-        if (!ink) continue;
-        shift = timeShift(boxes[i], ink);
-        if (Math.abs(shift.x) < 0.05 && Math.abs(shift.y) < 0.05) continue;
-        cur = readShift(ink);
-        ink.style.transform = "translate(" + (cur.x + shift.x).toFixed(3) + "px, " + (cur.y + shift.y).toFixed(3) + "px)";
-      }
+      box = boxes[i];
+      ink = box.querySelector(".tink");
+      if (!ink) continue;
+      cs = getComputedStyle(ink);
+      key = cs.fontSize + " " + cs.fontWeight + " " + (box.classList.contains("roll") ? "r" : "n");
+      if (cache[key] == null) cache[key] = timeDy(box, ink, ctx);
+      dy = cache[key];
+      ink.style.transform = dy ? "translateY(" + dy + "px)" : "";
     }
   }
   function relayout(sheet) {
@@ -1535,24 +1522,34 @@ const FIT_SCRIPT = `
     fitRolls(sheet);
     evenStopRows(sheet);
     centerHeads(sheet);
-    centerTimes(sheet);
   }
   function shrink(sheet) {
     var lo = 0.62;
     var hi = 1;
+    var best = "";
+    var i, applied;
     if (heightIn() <= LIMIT) {
       sheet.style.setProperty("--fit", "1");
       return;
     }
-    for (var i = 0; i < 10; i++) {
-      var mid = (lo + hi) / 2;
-      sheet.style.setProperty("--fit", mid.toFixed(3));
+    for (i = 0; i < 8; i++) {
+      applied = ((lo + hi) / 2).toFixed(3);
+      sheet.style.setProperty("--fit", applied);
       relayout(sheet);
-      if (heightIn() > LIMIT) hi = mid;
-      else lo = mid;
+      if (heightIn() > LIMIT) hi = Number(applied);
+      else {
+        lo = Number(applied);
+        best = applied;
+      }
     }
-    sheet.style.setProperty("--fit", lo.toFixed(3));
+    if (!best) best = lo.toFixed(3);
+    sheet.style.setProperty("--fit", best);
     relayout(sheet);
+    for (i = 0; i < 6 && heightIn() > LIMIT && Number(best) > 0.62; i++) {
+      best = Math.max(0.62, Number(best) - 0.005).toFixed(3);
+      sheet.style.setProperty("--fit", best);
+      relayout(sheet);
+    }
   }
   function note() {
     var el = document.getElementById("page-count");
@@ -1609,6 +1606,7 @@ const FIT_SCRIPT = `
       if (heightIn() > LIMIT) shrink(sheet);
     }
     relayout(sheet);
+    centerTimes(sheet);
     note();
   }
   function printPoster() {
