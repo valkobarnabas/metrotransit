@@ -341,6 +341,24 @@ function routeListPhrase(names) {
   return `${names.slice(0, -1).join(", ")}, & ${names[names.length - 1]}`;
 }
 
+function badgeGrid(n) {
+  const maxW = 2.95;
+  const gap = 0.04;
+  const minSize = 0.48;
+  if (n <= 1) return { cols: 1, size: 0.92, gap };
+  if (n === 2) return { cols: 2, size: 0.86, gap };
+  if (n === 3) return { cols: 3, size: 0.78, gap };
+  const preferred = 0.68;
+  const fit = (cols) => Math.min(preferred, (maxW - Math.max(0, cols - 1) * gap) / cols);
+  let cols = Math.ceil(n / 2);
+  let size = fit(cols);
+  if (size < minSize) {
+    cols = Math.ceil(n / 3);
+    size = fit(cols);
+  }
+  return { cols, size, gap };
+}
+
 function gapTo(inner) {
   return String(inner)
     .replace(/ TO /g, '<span class="to-gap">T</span>')
@@ -524,15 +542,15 @@ function renderHybridHtml(opts) {
     names.push(n);
   }
   const kicker = `Metro Transit Route${names.length > 1 ? "s" : ""} ${routeListPhrase(names)}`;
-  const badgeSize = names.length <= 1 ? 0.92 : names.length === 2 ? 0.86 : names.length === 3 ? 0.78 : 0.68;
+  const grid = badgeGrid(names.length);
   const badges = names
     .map((n) => {
       const heading = headings.find((h) => h.routeShortName === n) || {};
       const bg = heading.routeColor || "#333366";
       const fg = heading.routeTextColor || "#ffffff";
       let font = n.length > 2 ? 42 : n.length > 1 ? 56 : 72;
-      font = Math.max(11, Math.round(font * (badgeSize / 0.92)));
-      return `<div class="badge" style="background:${escapeText(bg)};color:${escapeText(fg)};width:${badgeSize}in;height:${badgeSize}in;font-size:${font}px"><span class="mark">${escapeText(n)}</span></div>`;
+      font = Math.max(11, Math.round(font * (grid.size / 0.92)));
+      return `<div class="badge" style="background:${escapeText(bg)};color:${escapeText(fg)};width:${grid.size}in;height:${grid.size}in;font-size:${font}px"><span class="mark">${escapeText(n)}</span></div>`;
     })
     .join("");
   const qr = opts.qr || "";
@@ -646,7 +664,14 @@ function renderHybridHtml(opts) {
       align-items: center;
       padding-bottom: 8px;
     }
-    .badges { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+    .badges {
+      display: grid;
+      grid-template-columns: repeat(var(--badge-cols, 1), auto);
+      gap: var(--badge-gap, 4px);
+      align-items: center;
+      align-content: center;
+      justify-items: center;
+    }
     .badge {
       width: 0.92in;
       height: 0.92in;
@@ -755,7 +780,7 @@ function renderHybridHtml(opts) {
       flex-wrap: wrap;
       align-items: baseline;
       gap: 0.22em 0.45em;
-      margin: 0 0 5px;
+      margin: 0 0 7px;
       font-size: calc(13px * var(--fit));
       line-height: 1.35;
     }
@@ -807,15 +832,20 @@ function renderHybridHtml(opts) {
     .dayhead {
       grid-column: 1 / -1;
       justify-self: start;
+      align-self: start;
+      display: flex;
+      align-items: flex-end;
+      box-sizing: border-box;
+      height: calc(10px * var(--fit));
       font-size: calc(10px * var(--fit));
       font-weight: 800;
       font-style: italic;
       letter-spacing: 0.04em;
       margin: 0 0 5px;
       text-decoration: none;
-      line-height: 1.2;
+      line-height: 1;
     }
-    .dayhead.mf { font-size: calc((10px + 1pt) * var(--fit)); font-weight: 800; }
+    .dayhead.mf { font-weight: 800; }
     .dayhead.wknd { font-style: italic; font-weight: 400; }
     .band-lab {
       font-size: calc(11.5px * var(--fit));
@@ -1085,7 +1115,7 @@ function renderHybridHtml(opts) {
   </div>
   <article class="sheet${bw ? " bw" : ""}" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
     <header class="mast">
-      <div class="badges">${badges}</div>
+      <div class="badges" style="--badge-cols:${grid.cols};--badge-gap:${grid.gap}in">${badges}</div>
       <div class="ident">
         <div class="kicker">${escapeText(kicker)}</div>
         <h1>${escapeText(name)}</h1>
