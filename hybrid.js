@@ -453,13 +453,23 @@ function isSparse(heading) {
   return cols.length > 0 && cols.length <= 2 && shownCount(heading) <= 2;
 }
 
+function headingDest(heading) {
+  return String((heading && heading.board && heading.board.dest) || "").trim().toUpperCase();
+}
+
+function isCampusPair(a, b) {
+  const dests = [headingDest(a), headingDest(b)];
+  return dests.includes("SEGOE") && dests.includes("EAST CAMPUS VIA HIGH CROSSING");
+}
+
 function timesHtml(headings) {
   const parts = [];
   for (let i = 0; i < headings.length; i++) {
     const here = headings[i];
     const next = headings[i + 1];
     if (next && isSparse(here) && isSparse(next)) {
-      parts.push(`<div class="hy-pair">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`);
+      const tight = isCampusPair(here, next) ? " tight" : "";
+      parts.push(`<div class="hy-pair${tight}">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`);
       i += 1;
     } else {
       parts.push(timeBlockHtml(here));
@@ -513,7 +523,7 @@ function renderHybridHtml(opts) {
     seen.add(n);
     names.push(n);
   }
-  const kicker = `Metro Transit Route ${routeListPhrase(names)}`;
+  const kicker = `Metro Transit Route${names.length > 1 ? "s" : ""} ${routeListPhrase(names)}`;
   const badgeSize = names.length <= 1 ? 0.92 : names.length === 2 ? 0.86 : names.length === 3 ? 0.78 : 0.68;
   const badges = names
     .map((n) => {
@@ -551,7 +561,7 @@ function renderHybridHtml(opts) {
       </span>
       <span class="ns-line"></span>
     </div>`;
-  const slug = `${names.length ? names.join("-").toLowerCase() : "hybrid"}-${code}-hybrid`;
+  const slug = String(code || "poster");
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -737,9 +747,9 @@ function renderHybridHtml(opts) {
       background: #111;
     }
     .hy-pair > .hy-block { width: max-content; max-width: 100%; margin: 0; }
-    .hy-pair .hy-head { font-size: calc(11.5px * var(--fit)); }
-    .hy-pair .hy-line { flex-wrap: nowrap; }
-    .hy-pair .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: 0.08em; }
+    .hy-pair.tight .hy-head { font-size: calc(11.5px * var(--fit)); }
+    .hy-pair.tight .hy-line { flex-wrap: nowrap; }
+    .hy-pair.tight .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: 0.08em; }
     .hy-head {
       display: flex;
       flex-wrap: wrap;
@@ -762,7 +772,14 @@ function renderHybridHtml(opts) {
       color: #111;
       padding: 0;
     }
-    .hy-route { font-weight: 700; }
+    .hy-route {
+      font-weight: 700;
+      border: 1px solid var(--route);
+      background: var(--route);
+      color: var(--route-ink);
+      padding: 0.06em 0.38em 0.04em;
+      line-height: 1.2;
+    }
     .hy-dir { font-weight: 400; margin-right: -0.16em; }
     .hy-towards, .hy-and { color: inherit; }
     .hy-dest {
@@ -776,7 +793,9 @@ function renderHybridHtml(opts) {
       border: 1px solid #2b2b2b;
       padding: 0.12em 0.38em 0.08em;
     }
-    .days { display: grid; column-gap: 0.16in; align-items: stretch; }
+    .days { display: grid; column-gap: 0.16in; align-items: stretch; justify-content: start; }
+    .daycol.compact { grid-template-columns: auto auto; }
+    .daycol.compact .boxes { width: max-content; max-width: 100%; }
     .daycol {
       position: relative;
       display: grid;
@@ -790,6 +809,7 @@ function renderHybridHtml(opts) {
       justify-self: start;
       font-size: calc(10px * var(--fit));
       font-weight: 800;
+      font-style: italic;
       letter-spacing: 0.04em;
       margin: 0 0 5px;
       text-decoration: none;
@@ -937,41 +957,48 @@ function renderHybridHtml(opts) {
     .stop-no { color: var(--muted); font-weight: 500; }
     .xfer { display: flex; flex-wrap: wrap; align-items: center; row-gap: 3px; }
     .xfer-cluster { display: inline-flex; flex-wrap: wrap; align-items: center; row-gap: 3px; }
-    .xfer-plus { width: 0.85em; margin: 0 0.08em; font-weight: 700; font-size: 9px; color: var(--muted); }
+    .xfer-plus { width: 0.85em; margin: 0 0.08em; font-weight: 700; font-size: calc(9px * var(--fit)); color: var(--muted); }
     .sq {
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      box-sizing: border-box;
       width: 1.5em;
-      height: 1.15em;
+      height: 1.2em;
       min-width: 1.5em;
       margin-right: 2px;
+      padding: 0;
       font-size: calc(10.5px * var(--fit));
       font-weight: 800;
       line-height: 1;
       vertical-align: middle;
     }
-    .sq .mark { display: block; line-height: 1; }
+    .sq .mark {
+      display: block;
+      line-height: 1;
+      text-box-trim: trim-both;
+      text-box-edge: cap alphabetic;
+    }
     .xfer-stop {
       display: inline-flex;
       align-items: center;
       gap: 0.15em;
       margin-left: 0.2em;
-      font-size: 8px;
+      font-size: calc(8px * var(--fit));
       color: var(--muted);
       white-space: nowrap;
     }
     .xfer-stop .walk { width: calc(11px * var(--fit)); height: calc(11px * var(--fit)); flex: none; }
     .loi-list { display: flex; flex-wrap: wrap; gap: 2px 8px; }
-    .loi { display: inline-flex; align-items: center; gap: 4px; font-size: 9px; font-weight: 600; }
+    .loi { display: inline-flex; align-items: center; gap: 4px; font-size: calc(9px * var(--fit)); font-weight: 600; }
     .loi svg { width: 11px; height: 11px; flex: none; }
     .only-served {
       display: block;
       min-width: 0;
       margin-top: 1px;
       font-style: italic;
-      font-size: 9px;
-      line-height: 14px;
+      font-size: calc(9px * var(--fit));
+      line-height: calc(14px * var(--fit));
       color: var(--muted);
       white-space: normal;
     }
@@ -981,10 +1008,10 @@ function renderHybridHtml(opts) {
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
-      height: 11px;
+      height: calc(11px * var(--fit));
       font-family: "Share Tech Mono", Consolas, monospace;
       font-style: normal;
-      font-size: 7.5px;
+      font-size: calc(7.5px * var(--fit));
       letter-spacing: 0.04em;
       line-height: 1;
       text-transform: uppercase;
@@ -1141,15 +1168,132 @@ const FIT_SCRIPT = `
   var LIMIT = 10.8;
   var MARGIN_L = 0.2;
   var MARGIN_B = 0.2;
+  function clearCompact(sheet) {
+    var cols = sheet.querySelectorAll(".daycol.compact");
+    var i, boxes, b;
+    for (i = 0; i < cols.length; i++) {
+      cols[i].classList.remove("compact");
+      cols[i].style.gridTemplateColumns = "";
+      boxes = cols[i].querySelectorAll(".boxes");
+      for (b = 0; b < boxes.length; b++) {
+        if (!boxes[b].classList.contains("roll-row")) {
+          boxes[b].style.gridTemplateColumns = "";
+          boxes[b].style.width = "";
+        }
+      }
+    }
+    var groups = sheet.querySelectorAll(".days");
+    for (i = 0; i < groups.length; i++) {
+      var n = groups[i].querySelectorAll(":scope > .daycol").length;
+      groups[i].style.gridTemplateColumns = "repeat(" + Math.max(1, n) + ", minmax(0, 1fr))";
+    }
+  }
+  function dayNatural(col) {
+    var nodes = col.querySelectorAll(":scope > .boxes");
+    var i, font = 11.5, minBox = 40, boxesW = 0, count, kids, k, rolls, r, rollW;
+    for (i = 0; i < nodes.length; i++) {
+      if (nodes[i].classList.contains("roll-row")) continue;
+      font = parseFloat(getComputedStyle(nodes[i]).fontSize) || font;
+      minBox = Math.max(24, Math.round(3.45 * font));
+      count = 0;
+      kids = nodes[i].children;
+      for (k = 0; k < kids.length; k++) if (kids[k].classList.contains("tbox")) count++;
+      if (count * minBox > boxesW) boxesW = count * minBox;
+      rolls = nodes[i].querySelectorAll(".tbox.roll");
+      rollW = 0;
+      for (r = 0; r < rolls.length; r++) rollW += rolls[r].getBoundingClientRect().width;
+      if (rollW > boxesW) boxesW = rollW;
+    }
+    var lab = col.querySelector(".band-lab");
+    var labW = lab ? lab.getBoundingClientRect().width : 0;
+    var gap = parseFloat(getComputedStyle(col).columnGap) || 0;
+    var head = col.querySelector(".dayhead");
+    var headW = head ? head.scrollWidth : 0;
+    return { width: Math.max(headW, labW + gap + boxesW), minBox: minBox };
+  }
+  function packDays(sheet) {
+    var groups = sheet.querySelectorAll(".days");
+    var g, i;
+    for (g = 0; g < groups.length; g++) {
+      var days = groups[g];
+      var cols = days.querySelectorAll(":scope > .daycol");
+      if (cols.length < 2) continue;
+      var gap = parseFloat(getComputedStyle(days).columnGap) || 0;
+      var total = days.getBoundingClientRect().width;
+      if (!(total > 0)) continue;
+      var share = (total - gap * (cols.length - 1)) / cols.length;
+      var info = [];
+      var tracks = [];
+      var flex = 0;
+      for (i = 0; i < cols.length; i++) {
+        info.push(dayNatural(cols[i]));
+        if (info[i].width <= share + 1) tracks.push("px");
+        else { tracks.push("minmax(0, 1fr)"); flex++; }
+      }
+      if (flex === cols.length) continue;
+      for (i = 0; i < cols.length; i++) {
+        if (tracks[i] !== "px") continue;
+        tracks[i] = Math.ceil(info[i].width + 4) + "px";
+        cols[i].classList.add("compact");
+        var boxes = cols[i].querySelectorAll(":scope > .boxes");
+        var b, count, kids, k;
+        for (b = 0; b < boxes.length; b++) {
+          if (boxes[b].classList.contains("roll-row")) continue;
+          count = 0;
+          kids = boxes[b].children;
+          for (k = 0; k < kids.length; k++) if (kids[k].classList.contains("tbox")) count++;
+          if (!count) continue;
+          boxes[b].style.setProperty("--box", info[i].minBox + "px");
+          boxes[b].style.gridTemplateColumns = "repeat(" + count + ", " + info[i].minBox + "px)";
+          boxes[b].style.width = "max-content";
+        }
+      }
+      days.style.gridTemplateColumns = tracks.join(" ");
+    }
+  }
+  function evenStopRows(sheet) {
+    var rows = sheet.querySelectorAll("tr.data");
+    var i, c;
+    for (i = 0; i < rows.length; i++) {
+      rows[i].style.minHeight = "";
+      for (c = 0; c < rows[i].children.length; c++) rows[i].children[c].style.minHeight = "";
+    }
+    var fitEl = document.getElementById("fit-page");
+    if (!fitEl || !fitEl.checked || !rows.length) return;
+    var standard = 0;
+    for (i = 0; i < rows.length; i++) {
+      var wrapped = false;
+      var cells = rows[i].children;
+      for (c = 0; c < cells.length; c++) {
+        var cs = getComputedStyle(cells[c]);
+        var font = parseFloat(cs.fontSize) || 10;
+        var line = parseFloat(cs.lineHeight);
+        if (!line || line < font) line = font * 1.25;
+        var pad = (parseFloat(cs.paddingTop) || 0) + (parseFloat(cs.paddingBottom) || 0);
+        if (cells[c].scrollHeight > line + pad + 4) wrapped = true;
+      }
+      if (wrapped) continue;
+      var h = rows[i].getBoundingClientRect().height;
+      if (h > standard) standard = h;
+    }
+    if (!(standard > 0)) return;
+    var px = Math.ceil(standard) + "px";
+    for (i = 0; i < rows.length; i++) {
+      rows[i].style.minHeight = px;
+      for (c = 0; c < rows[i].children.length; c++) rows[i].children[c].style.minHeight = px;
+    }
+  }
   function tileTimes(sheet) {
     var nodes = sheet.querySelectorAll(".boxes");
     var i;
     for (i = 0; i < nodes.length; i++) {
-      if (!nodes[i].classList.contains("roll-row")) nodes[i].style.gridTemplateColumns = "";
+      if (nodes[i].classList.contains("roll-row")) continue;
+      if (nodes[i].closest(".daycol.compact")) continue;
+      nodes[i].style.gridTemplateColumns = "";
     }
     for (i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      if (el.classList.contains("roll-row")) continue;
+      if (el.classList.contains("roll-row") || el.closest(".daycol.compact")) continue;
       var font = parseFloat(getComputedStyle(el).fontSize) || 11.5;
       var min = Math.max(24, Math.round(3.45 * font));
       var inner = Math.floor(el.getBoundingClientRect().width);
@@ -1167,6 +1311,13 @@ const FIT_SCRIPT = `
       if (w > 0) box.style.width = w + "px";
     }
   }
+  function relayout(sheet) {
+    clearCompact(sheet);
+    tileTimes(sheet);
+    packDays(sheet);
+    tileTimes(sheet);
+    evenStopRows(sheet);
+  }
   function shrink(sheet) {
     var lo = 0.62;
     var hi = 1;
@@ -1177,12 +1328,12 @@ const FIT_SCRIPT = `
     for (var i = 0; i < 10; i++) {
       var mid = (lo + hi) / 2;
       sheet.style.setProperty("--fit", mid.toFixed(3));
-      tileTimes(sheet);
+      relayout(sheet);
       if (heightIn() > LIMIT) hi = mid;
       else lo = mid;
     }
     sheet.style.setProperty("--fit", lo.toFixed(3));
-    tileTimes(sheet);
+    relayout(sheet);
   }
   function note() {
     var el = document.getElementById("page-count");
@@ -1221,7 +1372,7 @@ const FIT_SCRIPT = `
     applyTone();
     unsplit(sheet);
     sheet.style.setProperty("--fit", "1");
-    tileTimes(sheet);
+    relayout(sheet);
     var h = heightIn();
     var lab = box && box.closest("label");
     if (lab) lab.hidden = h <= LIMIT;
@@ -1229,24 +1380,32 @@ const FIT_SCRIPT = `
     if (box && box.checked && h > LIMIT) {
       if (h >= 15) {
         split(sheet);
-        tileTimes(sheet);
+        relayout(sheet);
         var two = heightIn();
         if (two > h * 0.95) {
           unsplit(sheet);
-          tileTimes(sheet);
+          relayout(sheet);
         }
       }
       if (heightIn() > LIMIT) shrink(sheet);
     }
-    tileTimes(sheet);
+    relayout(sheet);
     note();
   }
   function printPoster() {
     var slug = document.body.getAttribute("data-pdf-name") || document.title;
     var prev = document.title;
+    var parentPrev = null;
     document.title = slug;
+    try {
+      if (window.parent && window.parent !== window) {
+        parentPrev = window.parent.document.title;
+        window.parent.document.title = slug;
+      }
+    } catch (err) {}
     window.addEventListener("afterprint", function restore() {
       document.title = prev;
+      try { if (parentPrev != null) window.parent.document.title = parentPrev; } catch (err) {}
       window.removeEventListener("afterprint", restore);
     });
     window.print();
@@ -1399,6 +1558,9 @@ function openTab() {
   }
 }
 
+window.MMTHybridRender = renderHybridHtml;
+
+if (goTimesEl) {
 qEl.addEventListener("input", () => {
   selected = null;
   pickedEl.hidden = true;
@@ -1485,6 +1647,7 @@ function openFromQuery() {
     return;
   }
   showPicked(stop);
+  generate("both");
 }
 
 qEl.disabled = true;
@@ -1508,3 +1671,4 @@ Promise.all([
     if (!selected) qEl.focus();
   })
   .catch((e) => showErr(e.message || String(e)));
+}

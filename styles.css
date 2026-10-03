@@ -252,6 +252,7 @@ h1 {
   padding: 8px 10px;
   font-family: "IBM Plex Sans", "Segoe UI", Tahoma, sans-serif;
   font-weight: 700;
+  white-space: normal;
   max-width: 16rem;
 }
 .address-hit .addr { font-size: 13px; line-height: 1.35; }
@@ -266,6 +267,8 @@ h1 {
   box-shadow: none;
   padding: 8px 10px 8px 8px;
   font-family: "IBM Plex Sans", "Segoe UI", Tahoma, sans-serif;
+  white-space: normal;
+  max-width: 16rem;
 }
 .leaflet-tooltip.stop-tip.stop-locked { border-left-color: #111; }
 .leaflet-tooltip-top.stop-tip::before { border-top-color: #d0d0d0; }

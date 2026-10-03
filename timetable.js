@@ -7,7 +7,8 @@ const pickedMeta = document.getElementById("picked-meta");
 const routesEl = document.getElementById("routes");
 const allEl = document.getElementById("all");
 const noSchoolEl = document.getElementById("noschool");
-const diagramEl = document.getElementById("diagram");
+const legacyEl = document.getElementById("legacy");
+let hybridReady = null;
 const goEl = document.getElementById("go");
 const errEl = document.getElementById("err");
 const outEl = document.getElementById("out");
@@ -134,7 +135,25 @@ function showPicked(stop) {
   syncRouteChecks();
 }
 
-function generate() {
+function loadHybridRender() {
+  if (window.MMTHybridRender) return Promise.resolve(window.MMTHybridRender);
+  if (!hybridReady) {
+    hybridReady = fetch("hybrid.js")
+      .then(async (res) => {
+        if (!res.ok) throw new Error("Could not load the timetable layout.");
+        new Function(await res.text())();
+        if (!window.MMTHybridRender) throw new Error("Timetable layout failed to load.");
+        return window.MMTHybridRender;
+      })
+      .catch((err) => {
+        hybridReady = null;
+        throw err;
+      });
+  }
+  return hybridReady;
+}
+
+async function generate() {
   showErr("");
   if (!selected) return;
   if (!P || !P.mergePosterParts || !P.renderPoster) {
@@ -159,12 +178,36 @@ function generate() {
   }
   try {
     if (P.setPosterOptions) {
-      P.setPosterOptions({ ...(P.posterOptions() || {}), showDiagram: !!(diagramEl && diagramEl.checked) });
+      P.setPosterOptions({ ...(P.posterOptions() || {}), showDiagram: true });
     }
     const data = P.mergePosterParts(parts);
     data.feed = pack.feed;
     data.qrBits = pack.qrBits;
-    lastHtml = P.renderPoster(data);
+    if (legacyEl && legacyEl.checked) {
+      lastHtml = P.renderPoster(data);
+    } else {
+      const render = await loadHybridRender();
+      const stop = data.stop || {};
+      const predUrl = P.stopPredictionUrl ? P.stopPredictionUrl(selected.code) : "";
+      const qr =
+        (data.qrBits && P.qrSvgFromBits && P.qrSvgFromBits(data.qrBits)) ||
+        (predUrl && P.qrSvgWithLogo && P.qrSvgWithLogo(predUrl)) ||
+        "";
+      const street = P.streetDirectionLabel
+        ? P.streetDirectionLabel(stop)
+        : [selected.dir, selected.street].filter(Boolean).join(" ");
+      lastHtml = render({
+        part: "timetable",
+        headings: data.headings || [],
+        posters: [],
+        stopCode: selected.code,
+        stopName: selected.name,
+        street,
+        feed: data.feed || pack.feed || {},
+        qr,
+        predUrl,
+      });
+    }
     preview.srcdoc = lastHtml;
     outEl.hidden = false;
     outEl.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -278,8 +321,8 @@ routesEl.addEventListener("change", () => {
   goEl.disabled = !checked.length;
 });
 
-if (diagramEl) {
-  diagramEl.addEventListener("change", () => {
+if (legacyEl) {
+  legacyEl.addEventListener("change", () => {
     if (selected && !outEl.hidden) generate();
   });
 }

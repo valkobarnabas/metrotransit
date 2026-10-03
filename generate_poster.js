@@ -1235,7 +1235,7 @@ function timetableKicker(names) {
   const list = (names || []).map((n) => String(n || "").trim()).filter(Boolean);
   const agency = POSTER_OPTS.agencyName || "Metro Transit";
   if (list.length <= 1) return `${agency} Route ${list[0] || ""} departures`;
-  return `${agency} Route ${routeListPhrase(list)} departures`;
+  return `${agency} Routes ${routeListPhrase(list)} departures`;
 }
 
 function badgeGrid(n) {
@@ -1801,10 +1801,7 @@ function renderPoster(data) {
   const showTo = POSTER_OPTS.showTo !== false;
   const hbClass = POSTER_OPTS.headboardStyle === "plain" ? "headboard plain" : "headboard";
   const stopNo = publicStopCode(stop);
-  const pdfSlug =
-    labels.length <= 4
-      ? `${labels.map((l) => String(l.name || "route").toLowerCase()).join("-")}-${stopNo}`
-      : `all-${stopNo}`;
+  const pdfSlug = String(stopNo || "poster");
 
   const predUrl = stopPredictionUrl(stopNo);
   const qr = data.qrSvg || qrSvgFromBits(data.qrBits) || (predUrl ? qrSvgWithLogo(predUrl) : "");

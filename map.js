@@ -53,7 +53,7 @@ function tipHtml(stop) {
     <div class="tip-actions">
       <a href="timetable.html?stop=${code}">View timetable</a>
       <a href="stoplist.html?stop=${code}">View stop list</a>
-      <a href="hybrid.html?stop=${code}">View hybrid</a>
+      <a href="hybrid.html?stop=${code}">View hybrid poster</a>
     </div>
   </div>`;
 }
@@ -101,6 +101,40 @@ function clearAddressPin() {
   addressMarker = null;
 }
 
+function titleCaseWords(s) {
+  return String(s || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => {
+      if (/^(n|s|e|w|ne|nw|se|sw)$/i.test(w)) return w.toUpperCase();
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function mapAddressLabel(hit) {
+  const a = hit.address || {};
+  const parts = String(hit.display_name || "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+  let num = String(a.house_number || "").trim();
+  let road = String(a.road || a.pedestrian || a.residential || a.footway || "").trim();
+  let city = String(a.city || a.town || a.village || a.hamlet || "").trim();
+  if (!num && parts.length && /^\d+[A-Za-z]?$/.test(parts[0])) num = parts[0];
+  if (!road && parts.length) {
+    const street = /^\d+[A-Za-z]?$/.test(parts[0]) ? parts[1] : parts[0];
+    const split = String(street || "").match(/^(\d+[A-Za-z]?)\s+(.*)$/);
+    if (!num && split) {
+      num = split[1];
+      road = split[2];
+    } else road = street || "";
+  }
+  if (!city) city = parts.find((p) => /madison/i.test(p)) || "Madison";
+  const line = [num, titleCaseWords(road)].filter(Boolean).join(" ");
+  return `${line}, ${titleCaseWords(city)}`;
+}
+
 function placeAddressPin(lat, lon, label) {
   clearAddressPin();
   addressMarker = L.marker([lat, lon], { title: label, zIndexOffset: 1000 }).addTo(map);
@@ -127,7 +161,7 @@ function chooseAddress(hit) {
   const lon = Number(hit.lon);
   resultsEl.hidden = true;
   qEl.value = hit.display_name;
-  placeAddressPin(lat, lon, hit.display_name);
+  placeAddressPin(lat, lon, mapAddressLabel(hit));
   map.flyTo([lat, lon], 16);
   statusEl.textContent = "Searched address is marked on the map.";
 }
@@ -253,6 +287,7 @@ async function lookupAddresses() {
   url.searchParams.set("countrycodes", "us");
   url.searchParams.set("viewbox", `${VIEW.west},${VIEW.north},${VIEW.east},${VIEW.south}`);
   url.searchParams.set("bounded", "1");
+  url.searchParams.set("addressdetails", "1");
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error("Address search failed");
   const hits = await res.json();
