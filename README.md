@@ -1,6 +1,6 @@
 # Custom Metro Transit posters
 
-Unofficial printable posters and a stop map for [Madison Metro Transit](https://www.cityofmadison.com/metro), built from Metro’s public [GTFS feed](https://transitdata.cityofmadison.com/GTFS/). This is not an official Metro Transit website.
+Unofficial printable posters and a stop map for [Madison Metro Transit](https://www.cityofmadison.com/metro), built from Metro’s public [GTFS feed](https://transitdata.cityofmadison.com/GTFS/).
 
 Open the site with a local web server, or view it live at the [GitHub Pages](https://valkobarnabas.github.io/metrotransit) site. The timetables, stop lists, and map load gzipped schedule data, which a browser will not fetch from a `file://` page.
 
