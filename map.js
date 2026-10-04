@@ -3,6 +3,29 @@ const resultsEl = document.getElementById("results");
 const statusEl = document.getElementById("status");
 const clearEl = document.getElementById("clear");
 const routeFilterEl = document.getElementById("route-filter");
+const shelterEl = document.getElementById("filter-shelter");
+const multiEl = document.getElementById("filter-multi");
+const jurListEl = document.getElementById("jur-list");
+
+const JUR_LABEL = {
+  CMAD: "Madison",
+  CFIT: "Fitchburg",
+  CMID: "Middleton",
+  CMON: "Monona",
+  CSUN: "Sun Prairie",
+  CVER: "Verona",
+  VMAP: "Maple Bluff",
+  VMCF: "McFarland",
+  VSHO: "Shorewood Hills",
+  TBLO: "Blooming Grove",
+  TBUR: "Burke",
+  TMID: "Middleton (town)",
+  UWIS: "UW-Madison",
+  MTSM: "Metro Transit",
+  MSTM: "Metro Transit",
+  DCRA: "Dane County",
+  PRIV: "Private",
+};
 
 const VIEW = { south: 42.95, west: -89.65, north: 43.25, east: -89.15 };
 let stops = [];
@@ -207,8 +230,38 @@ function servesSelectedRoute(stop) {
   return (stop.routes || []).some((r) => r.n === route);
 }
 
+function nonSchoolCount(stop) {
+  const names = new Set();
+  for (const route of stop.routes || []) {
+    if (route && route.n && !route.s) names.add(route.n);
+  }
+  return names.size;
+}
+
+function selectedJurisdictions() {
+  if (!jurListEl) return null;
+  const boxes = jurListEl.querySelectorAll('input[type="checkbox"]');
+  if (!boxes.length) return null;
+  const picked = new Set();
+  let all = true;
+  boxes.forEach((box) => {
+    if (box.checked) picked.add(box.value);
+    else all = false;
+  });
+  return all ? null : picked;
+}
+
+function stopVisible(stop) {
+  if (!servesSelectedRoute(stop)) return false;
+  if (shelterEl && shelterEl.checked && !stop.shelter) return false;
+  if (multiEl && multiEl.checked && nonSchoolCount(stop) < 2) return false;
+  const jurs = selectedJurisdictions();
+  if (jurs && !jurs.has(stop.jur || "")) return false;
+  return true;
+}
+
 function searchStops(query) {
-  return matchingStops(query).filter(servesSelectedRoute).slice(0, 8);
+  return matchingStops(query).filter(stopVisible).slice(0, 8);
 }
 
 function fillRouteFilter() {
@@ -235,7 +288,7 @@ function fillRouteFilter() {
 
 function applyRouteFilter() {
   for (const stop of stops) {
-    const show = servesSelectedRoute(stop);
+    const show = stopVisible(stop);
     const onMap = map.hasLayer(stop.marker);
     if (show && !onMap) stop.marker.addTo(map);
     if (!show && onMap) {
@@ -243,6 +296,24 @@ function applyRouteFilter() {
       map.removeLayer(stop.marker);
     }
   }
+}
+
+function fillJurisdictions() {
+  if (!jurListEl) return;
+  const present = new Set();
+  for (const stop of stops) if (stop.jur) present.add(stop.jur);
+  const order = Object.keys(JUR_LABEL).filter((code) => present.has(code));
+  for (const code of present) if (!order.includes(code)) order.push(code);
+  jurListEl.innerHTML = order
+    .map((code) => {
+      const label = JUR_LABEL[code] || code;
+      return `<label class="check"><input type="checkbox" value="${escapeText(code)}" checked /> ${escapeText(label)}</label>`;
+    })
+    .join("");
+  jurListEl.querySelectorAll("input").forEach((box) => box.addEventListener("change", () => {
+    applyRouteFilter();
+    if (qEl.value.trim()) renderResults(searchStops(qEl.value));
+  }));
 }
 
 function unlockAll() {
@@ -412,12 +483,13 @@ qEl.addEventListener("input", () => {
   addressHits = [];
   renderResults(searchStops(qEl.value));
 });
-if (routeFilterEl) {
-  routeFilterEl.addEventListener("change", () => {
-    applyRouteFilter();
-    if (qEl.value.trim()) renderResults(searchStops(qEl.value));
-  });
+function onFilterChange() {
+  applyRouteFilter();
+  if (qEl.value.trim()) renderResults(searchStops(qEl.value));
 }
+if (routeFilterEl) routeFilterEl.addEventListener("change", onFilterChange);
+if (shelterEl) shelterEl.addEventListener("change", onFilterChange);
+if (multiEl) multiEl.addEventListener("change", onFilterChange);
 
 qEl.addEventListener("keydown", (event) => {
   if (event.key !== "Enter") return;
@@ -464,6 +536,9 @@ clearEl.addEventListener("click", () => {
   resultsEl.innerHTML = "";
   clearAddressPin();
   if (routeFilterEl) routeFilterEl.value = "";
+  if (shelterEl) shelterEl.checked = false;
+  if (multiEl) multiEl.checked = false;
+  if (jurListEl) jurListEl.querySelectorAll("input").forEach((box) => { box.checked = true; });
   unlockAll();
   for (const stop of stops) {
     if (stop.marker && !map.hasLayer(stop.marker)) stop.marker.addTo(map);
@@ -471,16 +546,18 @@ clearEl.addEventListener("click", () => {
   statusEl.textContent = "";
 });
 
-loadGzipJson("data/served.json.gz")
-  .then((pack) => {
+Promise.all([loadGzipJson("data/served.json.gz"), fetch("data/stop-meta.json").then((r) => (r.ok ? r.json() : {})).catch(() => ({}))])
+  .then(([pack, meta]) => {
     const routesByCode = new Map((pack.stops || []).map((s) => [s.code, s.routes || []]));
     const geo = pack.geo || {};
+    const info = meta || {};
     stops = Object.keys(geo)
       .map((code) => {
         const g = geo[code];
         const lat = Number(g.lat);
         const lon = Number(g.lon);
         if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+        const extra = info[code] || {};
         return {
           code,
           name: g.n || code,
@@ -489,11 +566,14 @@ loadGzipJson("data/served.json.gz")
           street: g.street || "",
           dir: g.dir || "",
           routes: routesByCode.get(code) || [],
+          jur: extra.j || "",
+          shelter: !!extra.s,
         };
       })
       .filter(Boolean);
     for (const stop of stops) hookMarker(stop);
     fillRouteFilter();
+    fillJurisdictions();
     qEl.disabled = false;
     qEl.focus();
     statusEl.textContent = "";

@@ -154,6 +154,12 @@ h1 {
 .check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
 .check[hidden] { display: none; }
 .map-filter { margin-top: 12px; }
+.map-advanced { margin-top: 14px; font-size: 14px; }
+.map-advanced summary { cursor: pointer; font-weight: 600; }
+.map-advanced .check { margin-top: 8px; }
+.jur-set { border: 0; margin: 12px 0 0; padding: 0; }
+.jur-set legend { font-weight: 600; font-size: 13px; padding: 0; }
+.jur-set .check { font-size: 13px; }
 
 .routes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
 .routes label {

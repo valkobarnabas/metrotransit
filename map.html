@@ -34,6 +34,15 @@
           <option value="">All routes</option>
         </select>
       </label>
+      <details class="map-advanced">
+        <summary>Advanced</summary>
+        <label class="check"><input type="checkbox" id="filter-shelter" /> Sheltered stops only</label>
+        <label class="check"><input type="checkbox" id="filter-multi" /> Multiple non-school routes</label>
+        <fieldset class="jur-set">
+          <legend>Jurisdiction</legend>
+          <div id="jur-list"></div>
+        </fieldset>
+      </details>
       <div id="results" class="results" hidden></div>
       <p class="map-status" id="status">Loading stops…</p>
       <button type="button" class="map-clear" id="clear">Clear</button>

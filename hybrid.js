@@ -22,8 +22,6 @@ let selected = null;
 let lastHtml = "";
 let lastPart = "both";
 let lastFit = false;
-let lastBw = false;
-
 function showErr(msg) {
   errEl.hidden = !msg;
   errEl.textContent = msg || "";
@@ -446,12 +444,24 @@ function routeLine(heading) {
   </div>`;
 }
 
+function routeFamily(name) {
+  const s = String(name || "").trim().toUpperCase();
+  let i = 0;
+  const first = s.charAt(0);
+  if (first >= "A" && first <= "Z") {
+    while (i < s.length && s.charAt(i) >= "A" && s.charAt(i) <= "Z") i += 1;
+    return s.slice(0, i);
+  }
+  while (i < s.length && s.charAt(i) >= "0" && s.charAt(i) <= "9") i += 1;
+  return s.slice(0, i) || s;
+}
+
 function timeBlockHtml(heading) {
   const columns = heading.columns || [];
   const note = headingNote(heading);
   const cols = Math.max(1, columns.length);
-  const narrow = isSparse(heading) ? " narrow" : "";
-  return `<section class="hy-block${narrow}" style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
+  const family = routeFamily(heading.routeShortName);
+  return `<section class="hy-block" data-family="${escapeText(family)}" style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
     ${routeLine(heading)}
     <div class="days" style="grid-template-columns:repeat(${cols}, minmax(0, 1fr))">
       ${columns.map(dayColumnHtml).join("")}
@@ -460,38 +470,14 @@ function timeBlockHtml(heading) {
   </section>`;
 }
 
-function shownCount(heading) {
-  let n = 0;
-  for (const col of heading.columns || []) n += uniqDeps(col.deps || []).length;
-  return n;
-}
-
-function isSparse(heading) {
-  const cols = (heading.columns || []).filter((col) => uniqDeps(col.deps || []).length);
-  return cols.length > 0 && cols.length <= 2 && shownCount(heading) <= 2;
-}
-
-function headingDest(heading) {
-  return String((heading && heading.board && heading.board.dest) || "").trim().toUpperCase();
-}
-
-function isCampusPair(a, b) {
-  const dests = [headingDest(a), headingDest(b)];
-  return dests.includes("SEGOE") && dests.includes("EAST CAMPUS VIA HIGH CROSSING");
-}
-
 function timesHtml(headings) {
   const parts = [];
-  for (let i = 0; i < headings.length; i++) {
-    const here = headings[i];
-    const next = headings[i + 1];
-    if (next && isSparse(here) && isSparse(next)) {
-      const tight = isCampusPair(here, next) ? " tight" : "";
-      parts.push(`<div class="hy-pair${tight}">${timeBlockHtml(here)}${timeBlockHtml(next)}</div>`);
-      i += 1;
-    } else {
-      parts.push(timeBlockHtml(here));
-    }
+  let prev = "";
+  for (const heading of headings) {
+    const family = routeFamily(heading.routeShortName);
+    if (prev && family && family !== prev) parts.push(`<hr class="family-rule" />`);
+    if (family) prev = family;
+    parts.push(timeBlockHtml(heading));
   }
   return parts.join("\n");
 }
@@ -518,7 +504,6 @@ function sourceLine(feed) {
 
 function renderHybridHtml(opts) {
   const fit = !!opts.fit;
-  const bw = !!opts.bw;
   const headings = opts.headings || [];
   const posters = opts.posters || [];
   const used = new Set();
@@ -625,8 +610,6 @@ function renderHybridHtml(opts) {
     }
     .chrome #fit-label { display: inline-flex; align-items: center; gap: 6px; }
     .chrome #fit-label[hidden] { display: none; }
-    .chrome .tone { display: inline-flex; align-items: center; gap: 12px; }
-    .chrome .tone label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
     .chrome .hint { color: #333; }
     .sheet {
       position: relative;
@@ -644,18 +627,6 @@ function renderHybridHtml(opts) {
       left: 0; top: 0; bottom: 0;
       width: 0.14in;
       background: var(--route);
-    }
-    .sheet.bw,
-    .sheet.bw .hy-block,
-    .sheet.bw .list-block {
-      --route: #5a5a5a !important;
-      --route-ink: #fff !important;
-      --led: #fff !important;
-    }
-    .sheet.bw .badge,
-    .sheet.bw .sq {
-      background: #5a5a5a !important;
-      color: #fff !important;
     }
     header.mast {
       display: grid;
@@ -750,28 +721,34 @@ function renderHybridHtml(opts) {
       border: 0;
       padding: 0;
     }
-    .hy-block.narrow { width: max-content; max-width: 100%; }
+    .family-rule {
+      border: 0;
+      border-top: 1px solid #111;
+      height: 0;
+      margin: calc(0.02in * var(--fit)) 0 calc(0.14in * var(--fit));
+      width: 100%;
+    }
     .hy-pair {
       position: relative;
       display: grid;
-      grid-template-columns: max-content max-content;
-      column-gap: 0.18in;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 0;
       align-items: stretch;
-      width: max-content;
+      width: 100%;
       max-width: 100%;
       margin: 0 0 calc(0.16in * var(--fit));
     }
-    .hy-pair > .hy-block + .hy-block { position: relative; }
+    .hy-pair > .hy-block + .hy-block { position: relative; padding-left: 0.1in; }
     .hy-pair > .hy-block + .hy-block::before {
       content: "";
       position: absolute;
       top: 0;
       bottom: 0;
-      left: calc(-0.09in - 0.5px);
+      left: 0;
       width: 1px;
       background: #111;
     }
-    .hy-pair > .hy-block { width: max-content; max-width: 100%; margin: 0; }
+    .hy-pair > .hy-block { width: auto; max-width: 100%; min-width: 0; margin: 0; }
     .hy-pair.tight .hy-head { font-size: calc(11.5px * var(--fit)); }
     .hy-pair.tight .hy-line { flex-wrap: nowrap; }
     .hy-pair.tight .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: 0.08em; }
@@ -1111,14 +1088,10 @@ function renderHybridHtml(opts) {
 <body data-pdf-name="${escapeText(slug)}">
   <div class="chrome">
     <button type="button" id="print-poster">Print/Save as PDF</button>
-    <span class="tone">
-      <label><input type="radio" name="tone" value="color"${bw ? "" : " checked"} /> Color</label>
-      <label><input type="radio" name="tone" value="bw"${bw ? " checked" : ""} /> Black and white</label>
-    </span>
     <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
     <span class="hint" id="page-count">Measuring size…</span>
   </div>
-  <article class="sheet${bw ? " bw" : ""}" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
+  <article class="sheet" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
     <header class="mast">
       <div class="badges" style="--badge-cols:${grid.cols};--badge-gap:${grid.gap}in">${badges}</div>
       <div class="ident">
@@ -1128,7 +1101,7 @@ function renderHybridHtml(opts) {
       </div>
       ${
         qr
-          ? `<div class="qr-block"><a href="${escapeText(predUrl)}" target="_blank" rel="noopener"><div class="qr-svg">${qr}</div><div class="qr-cap">Live departures<br />and detours</div></a></div>`
+          ? `<div class="qr-block"><a href="${escapeText(predUrl)}" target="_blank" rel="noopener"><div class="qr-svg">${qr}</div><div class="qr-cap">Live departures<br />from this stop</div></a></div>`
           : `<div class="qr-block"></div>`
       }
     </header>
@@ -1514,8 +1487,124 @@ const FIT_SCRIPT = `
       ink.style.transform = dy ? "translateY(" + dy + "px)" : "";
     }
   }
+  function blockNatural(block) {
+    var cols = block.querySelectorAll(":scope > .days > .daycol");
+    var daysEl = block.querySelector(":scope > .days");
+    var gap = daysEl ? parseFloat(getComputedStyle(daysEl).columnGap) || 0 : 0;
+    var w = 0;
+    var i;
+    for (i = 0; i < cols.length; i++) {
+      w += dayNatural(cols[i]).width;
+      if (i) w += gap;
+    }
+    var head = block.querySelector(".hy-line");
+    var headW = 0;
+    if (head) {
+      var prev = head.style.whiteSpace;
+      var prevWrap = head.style.flexWrap;
+      var prevWidth = head.style.width;
+      var prevFlex = head.style.flex;
+      head.style.whiteSpace = "nowrap";
+      head.style.flexWrap = "nowrap";
+      head.style.width = "max-content";
+      head.style.flex = "0 0 auto";
+      headW = head.scrollWidth;
+      head.style.whiteSpace = prev;
+      head.style.flexWrap = prevWrap;
+      head.style.width = prevWidth;
+      head.style.flex = prevFlex;
+    }
+    return Math.max(w, headW);
+  }
+  function campusTight(a, b) {
+    function dests(block) {
+      var nodes = block.querySelectorAll(".hy-dest");
+      var s = "";
+      var i;
+      for (i = 0; i < nodes.length; i++) s += " " + nodes[i].textContent;
+      return s.toUpperCase();
+    }
+    var text = dests(a) + " " + dests(b);
+    return text.indexOf("SEGOE") >= 0 && text.indexOf("EAST CAMPUS VIA HIGH CROSSING") >= 0;
+  }
+  function pairHosts(sheet) {
+    var flow = sheet.querySelector(".flow");
+    if (!flow) return [];
+    if (flow.getAttribute("data-split")) return flow.querySelectorAll(":scope > .hy-col");
+    return [flow];
+  }
+  function flattenPairs(host) {
+    var pairs = host.querySelectorAll(":scope > .hy-pair");
+    var i;
+    for (i = pairs.length - 1; i >= 0; i--) {
+      var pair = pairs[i];
+      while (pair.firstChild) host.insertBefore(pair.firstChild, pair);
+      pair.remove();
+    }
+    var rules = Array.prototype.slice.call(host.querySelectorAll(":scope > .family-rule"));
+    for (i = 0; i < rules.length; i++) rules[i].remove();
+    var prev = "";
+    var children = Array.prototype.slice.call(host.children);
+    for (i = 0; i < children.length; i++) {
+      var el = children[i];
+      if (!el.classList.contains("hy-block")) {
+        prev = "";
+        continue;
+      }
+      var fam = el.getAttribute("data-family") || "";
+      if (prev && fam && fam !== prev) {
+        var hr = document.createElement("hr");
+        hr.className = "family-rule";
+        host.insertBefore(hr, el);
+      }
+      if (fam) prev = fam;
+    }
+  }
+  function pairNarrow(host, half) {
+    var nodes = Array.prototype.slice.call(host.children);
+    var i = 0;
+    while (i < nodes.length) {
+      var a = nodes[i];
+      if (!a.classList || !a.classList.contains("hy-block")) {
+        i += 1;
+        continue;
+      }
+      var j = i + 1;
+      var rule = null;
+      if (j < nodes.length && nodes[j].classList && nodes[j].classList.contains("family-rule")) {
+        rule = nodes[j];
+        j += 1;
+      }
+      var b = j < nodes.length ? nodes[j] : null;
+      if (b && b.classList.contains("hy-block") && blockNatural(a) <= half && blockNatural(b) <= half) {
+        var pair = document.createElement("div");
+        pair.className = campusTight(a, b) ? "hy-pair tight" : "hy-pair";
+        host.insertBefore(pair, a);
+        pair.appendChild(a);
+        if (rule) rule.remove();
+        pair.appendChild(b);
+        i = j + 1;
+        continue;
+      }
+      i += 1;
+    }
+  }
+  function pairSideBySide(sheet) {
+    var hosts = pairHosts(sheet);
+    var flow = sheet.querySelector(".flow");
+    var pageW = flow ? flow.getBoundingClientRect().width : 0;
+    var h;
+    for (h = 0; h < hosts.length; h++) {
+      var host = hosts[h];
+      flattenPairs(host);
+      var hostW = host.getBoundingClientRect().width || pageW;
+      var half = hostW / 2 - 0.1 * inchPx();
+      if (half > 0) pairNarrow(host, half);
+    }
+  }
   function relayout(sheet) {
     clearCompact(sheet);
+    pairSideBySide(sheet);
     tileTimes(sheet);
     packDays(sheet);
     tileTimes(sheet);
@@ -1563,21 +1652,10 @@ const FIT_SCRIPT = `
     if (pages > 1) text += " · " + pages + " pages";
     el.textContent = text;
   }
-  function toneOn() {
-    var bw = document.querySelector('input[name="tone"][value="bw"]');
-    return !!(bw && bw.checked);
-  }
-  function applyTone() {
-    var sheet = sheetEl();
-    if (sheet) sheet.classList.toggle("bw", toneOn());
-    var box = document.getElementById("fit-page");
-    var lab = box && box.closest("label");
-    report(lab ? !lab.hidden : false, box && box.checked);
-  }
   function report(tall, fitChecked) {
     try {
       if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ source: "hybrid-fit", tall: tall, fit: !!fitChecked, bw: toneOn() }, "*");
+        window.parent.postMessage({ source: "hybrid-fit", tall: tall, fit: !!fitChecked }, "*");
       }
     } catch (err) {}
   }
@@ -1585,7 +1663,6 @@ const FIT_SCRIPT = `
     var sheet = sheetEl();
     var box = document.getElementById("fit-page");
     if (!sheet) return;
-    applyTone();
     unsplit(sheet);
     sheet.style.setProperty("--fit", "1");
     relayout(sheet);
@@ -1631,8 +1708,6 @@ const FIT_SCRIPT = `
   if (btn) btn.addEventListener("click", printPoster);
   var fit = document.getElementById("fit-page");
   if (fit) fit.addEventListener("change", apply);
-  var tones = document.querySelectorAll('input[name="tone"]');
-  for (var t = 0; t < tones.length; t++) tones[t].addEventListener("change", applyTone);
   if (document.readyState !== "complete") window.addEventListener("load", apply);
   else apply();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(apply);
@@ -1700,7 +1775,6 @@ function generate(part) {
       "";
     lastHtml = renderHybridHtml({
       fit: lastFit,
-      bw: lastBw,
       part: lastPart,
       headings: merged.headings || [],
       posters: servedPack ? listsFor(names, selected.code) : [],
@@ -1737,7 +1811,6 @@ window.addEventListener("message", (event) => {
   const data = event.data;
   if (!data || data.source !== "hybrid-fit") return;
   if (typeof data.fit === "boolean") lastFit = data.fit;
-  if (typeof data.bw === "boolean") lastBw = data.bw;
 });
 
 preview.addEventListener("load", () => {
