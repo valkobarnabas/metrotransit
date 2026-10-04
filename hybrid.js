@@ -389,7 +389,7 @@ function applySplitEnds(html) {
   return String(html).replace(
     re,
     (match, evening, hour, day) =>
-      `terminate at <span class="term-name">${day}</span> (weekdays until ${hour}pm) or <span class="term-name">${evening}</span> (weekends & after ${hour}pm).`
+      `terminate at <span class="term-name">${day}</span> (weekdays until ${hour}pm) or <span class="term-name">${evening}</span> (weekends + after ${hour}pm).`
   );
 }
 
@@ -601,7 +601,7 @@ function renderHybridHtml(opts) {
       flex-wrap: wrap;
       font-size: 13px;
     }
-    .chrome button, .chrome #fit-label {
+    .chrome button, .chrome label {
       background: #fff;
       border: 1px solid #7a7a7a;
       border-radius: 2px;
@@ -609,8 +609,8 @@ function renderHybridHtml(opts) {
       font: inherit;
       cursor: pointer;
     }
-    .chrome #fit-label { display: inline-flex; align-items: center; gap: 6px; }
-    .chrome #fit-label[hidden] { display: none; }
+    .chrome label { display: inline-flex; align-items: center; gap: 6px; }
+    .chrome label[hidden] { display: none; }
     .chrome .hint { color: #333; }
     .sheet {
       position: relative;
@@ -1073,11 +1073,11 @@ function renderHybridHtml(opts) {
       margin-top: calc(16px * var(--fit));
       padding-top: calc(8px * var(--fit));
       border-top: 1px solid #d0d0d0;
-      font-size: calc(9.5px * var(--fit));
-      line-height: 1.4;
+      font-size: calc(6.5px * var(--fit));
+      line-height: 1.2;
+      white-space: nowrap;
       color: var(--muted);
     }
-    footer.notes .source { margin-top: 0.15em; }
     @page { size: letter portrait; margin: 0 0 0.2in 0.2in; }
     @media print {
       html, body { margin: 0; background: #fff !important; }
@@ -1112,10 +1112,7 @@ function renderHybridHtml(opts) {
       ${times}
       ${listHtmlOut}
     </div>
-    <footer class="notes">
-      <div>This is a citizen-made poster intended to improve accessibility, not an official Metro Transit bulletin.</div>
-      <div class="source">${escapeText(sourceLine(opts.feed || {}))}</div>
-    </footer>
+    <footer class="notes">This is a citizen-made poster intended to improve accessibility, not an official Metro Transit bulletin. ${escapeText(sourceLine(opts.feed || {}))}</footer>
   </article>
   <script>
 ${FIT_SCRIPT}
@@ -1671,7 +1668,6 @@ const FIT_SCRIPT = `
     var h = heightIn();
     var lab = box && box.closest("label");
     if (lab) lab.hidden = h <= LIMIT;
-    report(h > LIMIT, box && box.checked);
     if (box && box.checked && h > LIMIT) {
       if (h >= 15) {
         split(sheet);
@@ -1686,6 +1682,7 @@ const FIT_SCRIPT = `
     }
     relayout(sheet);
     centerTimes(sheet);
+    report(h > LIMIT, box && box.checked);
     note();
   }
   function printPoster() {
