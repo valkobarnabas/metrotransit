@@ -389,7 +389,7 @@ function applySplitEnds(html) {
   return String(html).replace(
     re,
     (match, evening, hour, day) =>
-      `terminate at <span class="term-name">${day}</span> (weekdays until ${hour}pm) or <span class="term-name">${evening}</span> (weekends + after ${hour}pm).`
+      `terminate at <span class="term-name">${day}</span> (weekdays until ${hour}pm) or <span class="term-name">${evening}</span> (weekends & after ${hour}pm).`
   );
 }
 
