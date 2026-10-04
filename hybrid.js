@@ -1071,7 +1071,8 @@ function renderHybridHtml(opts) {
     .only-led .to-gap { visibility: hidden; }
     footer.notes {
       margin-top: calc(16px * var(--fit));
-      padding-top: 0;
+      padding-top: calc(8px * var(--fit));
+      border-top: 1px solid #d0d0d0;
       font-size: calc(9.5px * var(--fit));
       line-height: 1.4;
       color: var(--muted);
