@@ -346,6 +346,7 @@ function badgeGrid(n) {
   if (n <= 1) return { cols: 1, size: 0.92, gap };
   if (n === 2) return { cols: 2, size: 0.86, gap };
   if (n === 3) return { cols: 3, size: 0.78, gap };
+  if (n === 4) return { cols: 4, size: Math.min(0.68, (maxW - 3 * gap) / 4), gap };
   const preferred = 0.68;
   const fit = (cols) => Math.min(preferred, (maxW - Math.max(0, cols - 1) * gap) / cols);
   let cols = Math.ceil(n / 2);
