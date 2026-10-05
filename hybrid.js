@@ -793,12 +793,12 @@ function renderHybridHtml(opts) {
       text-transform: uppercase;
       font-size: calc(15px * var(--fit));
       line-height: 1;
-      vertical-align: middle;
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
-      padding: 0.1em 0.38em;
+      padding: 0.12em calc(0.38em - 0.12em) 0.08em 0.38em;
     }
+    .hy-pair .hy-dest { padding-right: calc(0.38em - 0.08em); }
     .days { display: grid; column-gap: 0.16in; align-items: stretch; justify-content: start; }
     .daycol.compact { grid-template-columns: auto auto; }
     .daycol.compact .boxes { width: max-content; max-width: 100%; }
