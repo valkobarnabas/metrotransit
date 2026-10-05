@@ -796,7 +796,7 @@ function renderHybridHtml(opts) {
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
-      padding: 0.12em calc(0.38em - 0.12em) 0.08em 0.38em;
+      padding: 0.12em calc(0.38em - 0.12em + 0.13em) 0.08em calc(0.38em - 0.13em);
     }
     .hy-pair .hy-dest { padding-right: calc(0.38em - 0.08em); }
     .days { display: grid; column-gap: 0.16in; align-items: stretch; justify-content: start; }
