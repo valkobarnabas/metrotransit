@@ -1125,7 +1125,6 @@ function renderHybridHtml(opts) {
       font-size: calc(11.5px * var(--fit));
       font-weight: 500;
       line-height: 1;
-      padding-bottom: 1px;
     }
     .key-sample.pm { background: #d9d9d9; font-weight: 700; }
     footer.notes {
@@ -1143,7 +1142,7 @@ function renderHybridHtml(opts) {
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body > *:not(.sheet) { display: none !important; }
       .sheet { width: 8.3in; margin: 0 !important; }
-      .key-sample { padding-bottom: 3px; }
+      .key-sample { padding-bottom: 1px; }
     }
   </style>
 </head>
