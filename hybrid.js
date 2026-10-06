@@ -1585,6 +1585,7 @@ const FIT_SCRIPT = `
     if (!(innerW > 0) || !(innerH > 0)) return;
     var top = Math.round((innerH - asc - desc) / 2);
     var y = top + asc;
+    if (window.matchMedia && window.matchMedia("(pointer: coarse)").matches) y -= 1;
     var x = Math.round(innerW / 2);
     var svgNS = "http://www.w3.org/2000/svg";
     var doc = box.ownerDocument;
