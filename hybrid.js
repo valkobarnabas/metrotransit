@@ -1143,7 +1143,7 @@ function renderHybridHtml(opts) {
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body > *:not(.sheet) { display: none !important; }
       .sheet { width: 8.3in; margin: 0 !important; }
-      .key-sample { padding-bottom: 2px; }
+      .key-sample { padding-bottom: 5px; }
     }
   </style>
 </head>
