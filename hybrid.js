@@ -1125,6 +1125,7 @@ function renderHybridHtml(opts) {
       font-size: calc(11.5px * var(--fit));
       font-weight: 500;
       line-height: 1;
+      padding-bottom: 2px;
     }
     .key-sample.pm { background: #d9d9d9; font-weight: 700; }
     footer.notes {
