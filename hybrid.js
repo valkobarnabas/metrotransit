@@ -1116,13 +1116,15 @@ function renderHybridHtml(opts) {
       align-items: center;
       justify-content: center;
       box-sizing: border-box;
-      min-width: 2.4em;
-      padding: 0.06em 0.4em;
+      width: var(--box, 2.4em);
+      height: var(--box-h, calc(1.2em + 2px));
+      padding: 0;
       border: 1px solid #111;
       background: #fff;
       color: #111;
+      font-size: calc(11.5px * var(--fit));
       font-weight: 500;
-      line-height: 1.25;
+      line-height: 1;
     }
     .key-sample.pm { background: #d9d9d9; font-weight: 700; }
     footer.notes {
@@ -1607,13 +1609,31 @@ const FIT_SCRIPT = `
     ink.appendChild(svg);
     ink.setAttribute("aria-label", text);
   }
+  function sizeKey(sheet) {
+    var key = sheet.querySelector(".time-key");
+    if (!key) return;
+    var boxes = sheet.querySelectorAll(".tbox");
+    var best = null;
+    var bestW = 0;
+    var i, w;
+    for (i = 0; i < boxes.length; i++) {
+      if (boxes[i].classList.contains("roll")) continue;
+      w = boxes[i].offsetWidth;
+      if (w > bestW) { bestW = w; best = boxes[i]; }
+    }
+    if (!best) return;
+    if (bestW) key.style.setProperty("--box", bestW + "px");
+    if (best.offsetHeight) key.style.setProperty("--box-h", best.offsetHeight + "px");
+  }
   function centerTimes(sheet) {
     var boxes = sheet.querySelectorAll(".tbox");
-    if (!boxes.length) return;
-    var canvas = sheet.ownerDocument.createElement("canvas");
-    var ctx = canvas.getContext("2d");
-    var i;
-    for (i = 0; i < boxes.length; i++) paintTime(boxes[i], ctx);
+    if (boxes.length) {
+      var canvas = sheet.ownerDocument.createElement("canvas");
+      var ctx = canvas.getContext("2d");
+      var i;
+      for (i = 0; i < boxes.length; i++) paintTime(boxes[i], ctx);
+    }
+    sizeKey(sheet);
   }
   function blockNatural(block) {
     var cols = block.querySelectorAll(":scope > .days > .daycol");
@@ -1810,23 +1830,14 @@ const FIT_SCRIPT = `
       }
     }
   }
-  function posterOneRoute(sheet) {
-    var names = {};
-    var blocks = sheet.querySelectorAll(".hy-block");
-    var i, name;
-    for (i = 0; i < blocks.length; i++) {
-      name = blocks[i].getAttribute("data-family") || "";
-      if (name) names[name] = 1;
-    }
-    var count = 0;
-    for (name in names) if (Object.prototype.hasOwnProperty.call(names, name)) count += 1;
-    return count <= 1;
+  function posterOneHeading(sheet) {
+    return sheet.querySelectorAll(".hy-block").length <= 1;
   }
   function layoutBands(sheet) {
     restoreBands(sheet);
     var cute = document.getElementById("cute-mode");
     var on = !cute || cute.checked;
-    var alone = posterOneRoute(sheet);
+    var alone = posterOneHeading(sheet);
     var cols = sheet.querySelectorAll(".daycol");
     var i;
     var cuteFlow = false;
