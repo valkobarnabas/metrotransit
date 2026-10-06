@@ -228,7 +228,7 @@ function boxText(dep, band) {
   const hr = h % 12 || 12;
   const mm = String(Number(dep.mm) || 0).padStart(2, "0");
   const clock = `${hr}:${mm}`;
-  return band === "roll" ? `${clock}am` : clock;
+  return band === "roll" ? `${clock}<span class="roll-suffix">am</span>` : clock;
 }
 
 function isWeekendColumn(col) {
@@ -241,7 +241,12 @@ function isWeekendColumn(col) {
 }
 
 function boxesHtml(deps, kind) {
-  return deps.map((dep) => `<span class="tbox ${kind}"><span class="tink">${boxText(dep, kind)}</span></span>`).join("");
+  return deps.map((dep) => {
+    const inner = boxText(dep, kind);
+    const clock = inner.replace(/<span class="roll-suffix">am<\/span>/, "");
+    const suffix = kind === "roll" ? ' data-suffix="am"' : "";
+    return `<span class="tbox ${kind}"><span class="tink" data-clock="${clock}"${suffix}><span class="tink-src">${inner}</span></span></span>`;
+  }).join("");
 }
 
 function dayColumnHtml(col) {
@@ -257,10 +262,12 @@ function dayColumnHtml(col) {
   const wknd = isWeekendColumn(col) ? " wknd" : "";
   const mf = col.key === "weekday" ? " mf" : "";
   const second = amInner ? "PM" : pm.length ? "PM" : "AM";
-  return `<div class="daycol">
+  const lastAm = am.length ? Number(am[am.length - 1].hh) * 60 + (Number(am[am.length - 1].mm) || 0) : "";
+  const firstPm = pm.length ? Number(pm[0].hh) * 60 + (Number(pm[0].mm) || 0) : "";
+  return `<div class="daycol" data-last-am="${lastAm}" data-first-pm="${firstPm}">
     <div class="dayhead${wknd}${mf}">${escapeText(columnDayLabel({ ...col, deps }))}</div>
-    ${amInner ? `<span class="band-lab">AM</span><div class="boxes">${amInner}</div>` : ""}
-    ${pmInner ? `<span class="band-lab">${second}</span><div class="boxes">${pmInner}</div>` : ""}
+    ${amInner ? `<span class="band-lab" data-band="am">AM</span><div class="boxes am-set">${amInner}</div>` : ""}
+    ${pmInner ? `<span class="band-lab" data-band="pm">${second}</span><div class="boxes pm-set">${pmInner}</div>` : ""}
   </div>`;
 }
 
@@ -439,8 +446,8 @@ function routeLine(heading) {
     <span class="hy-line">
       <span class="hy-route">Route ${escapeText(code)}</span>
       ${dir ? `<span class="hy-dir">${escapeText(dir)}</span>` : ""}
-      ${dest ? `<span class="hy-towards">towards</span><span class="hy-dest">${escapeText(dest)}</span>` : ""}
-      ${also ? `<span class="hy-and">and</span><span class="hy-dest">${escapeText(also)}</span>` : ""}
+      ${dest ? `<span class="hy-towards">towards</span><span class="hy-dest" data-text="${escapeText(dest)}">${escapeText(dest)}</span>` : ""}
+      ${also ? `<span class="hy-and">and</span><span class="hy-dest" data-text="${escapeText(also)}">${escapeText(also)}</span>` : ""}
     </span>
   </div>`;
 }
@@ -722,13 +729,15 @@ function renderHybridHtml(opts) {
       border: 0;
       padding: 0;
     }
-    .family-rule {
+    .family-rule, .half-rule {
       border: 0;
       border-top: 1px solid #111;
       height: 0;
       margin: calc(0.02in * var(--fit)) 0 calc(0.14in * var(--fit));
       width: 100%;
     }
+    .half-rule { width: 50%; }
+    .half-rule.right { margin-left: 50%; }
     .hy-pair {
       position: relative;
       display: grid;
@@ -752,7 +761,7 @@ function renderHybridHtml(opts) {
     .hy-pair > .hy-block { width: auto; max-width: 100%; min-width: 0; margin: 0; }
     .hy-pair.tight .hy-head { font-size: calc(11.5px * var(--fit)); }
     .hy-pair.tight .hy-line { flex-wrap: nowrap; }
-    .hy-pair.tight .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: 0.08em; }
+    .hy-pair.tight .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: round(0.08em, 1px); }
     .hy-head {
       display: flex;
       flex-wrap: wrap;
@@ -789,17 +798,19 @@ function renderHybridHtml(opts) {
       display: inline-block;
       box-sizing: border-box;
       font-family: "Share Tech Mono", Consolas, monospace;
-      letter-spacing: 0.12em;
+      letter-spacing: round(0.12em, 1px);
       text-transform: uppercase;
       font-size: calc(15px * var(--fit));
       line-height: 1;
+      vertical-align: middle;
       background: var(--led-bg);
       color: var(--led);
       border: 1px solid #2b2b2b;
-      padding: 0.12em calc(0.38em - 0.12em + 0.01em) 0.08em calc(0.38em - 0.01em);
+      padding: round(0.1em, 1px) round(0.38em, 1px);
     }
-    .hy-pair .hy-dest { padding-right: calc(0.38em - 0.08em); }
+    .hy-dest svg { display: block; }
     .days { display: grid; column-gap: 0.16in; align-items: stretch; justify-content: start; }
+    .sheet.day-line .days { grid-template-columns: minmax(0, 1fr); row-gap: calc(8px * var(--fit)); }
     .daycol.compact { grid-template-columns: auto auto; }
     .daycol.compact .boxes { width: max-content; max-width: 100%; }
     .daycol {
@@ -810,6 +821,11 @@ function renderHybridHtml(opts) {
       align-items: start;
       align-content: start;
     }
+    .daycol > .band-lab { grid-column: 1; }
+    .daycol > .boxes { grid-column: 2; }
+    .daycol > .boxes.solo { grid-column: 1 / -1; }
+    .daycol > .band-lab[hidden],
+    .daycol > .boxes[hidden] { display: none; }
     .dayhead {
       grid-column: 1 / -1;
       justify-self: start;
@@ -868,6 +884,7 @@ function renderHybridHtml(opts) {
     }
     .tbox {
   box-sizing: border-box;
+  position: relative;
   width: calc(100% + 1px);
   height: var(--box-h);
   border: 1px solid #111;
@@ -884,10 +901,15 @@ function renderHybridHtml(opts) {
   text-align: center;
   white-space: nowrap;
 }
-    .tink {
-      display: inline-block;
-      line-height: 1;
+    .tink-src {
+      visibility: hidden;
       font-variant-numeric: tabular-nums;
+    }
+    .tink svg {
+      position: absolute;
+      left: 0;
+      top: 0;
+      display: block;
     }
     .tbox.roll {
   width: auto;
@@ -900,6 +922,11 @@ function renderHybridHtml(opts) {
   background: #fff;
   font-weight: 500;
 }
+    body:has(#cute-mode:checked) .roll-suffix { display: none; }
+    body:has(#cute-mode:checked) .tbox.roll {
+      padding-left: 0;
+      padding-right: 0;
+    }
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
     .tt-note { margin: 4px 0 0; font-size: calc(10.5px * var(--fit)); line-height: 1.35; color: var(--muted); }
     .ss-table .tt-note { margin: 0; line-height: 1; }
@@ -1069,6 +1096,35 @@ function renderHybridHtml(opts) {
     }
     .note-led .to-gap,
     .only-led .to-gap { visibility: hidden; }
+    .time-key {
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 0.4em;
+      box-sizing: border-box;
+      width: max-content;
+      max-width: 100%;
+      margin-top: calc(10px * var(--fit));
+      padding: 0.35em 0.55em;
+      border: 1px solid #111;
+      font-size: calc(11px * var(--fit));
+      font-weight: 600;
+    }
+    .time-key[hidden] { display: none; }
+    .key-sample {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      min-width: 2.4em;
+      padding: 0.06em 0.4em;
+      border: 1px solid #111;
+      background: #fff;
+      color: #111;
+      font-weight: 500;
+      line-height: 1.25;
+    }
+    .key-sample.pm { background: #d9d9d9; font-weight: 700; }
     footer.notes {
       margin-top: calc(16px * var(--fit));
       padding-top: calc(8px * var(--fit));
@@ -1091,6 +1147,8 @@ function renderHybridHtml(opts) {
   <div class="chrome">
     <button type="button" id="print-poster">Print/Save as PDF</button>
     <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
+    <label id="cute-label"><input type="checkbox" id="cute-mode" checked /> Cute mode</label>
+    <label id="day-line-label"><input type="checkbox" id="day-line" checked /> Day per line</label>
     <span class="hint" id="page-count">Measuring size…</span>
   </div>
   <article class="sheet" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
@@ -1112,6 +1170,7 @@ function renderHybridHtml(opts) {
       ${times}
       ${listHtmlOut}
     </div>
+    <div class="time-key"><span>Key:</span><span class="key-sample">AM</span><span class="key-sample pm">PM</span></div>
     <footer class="notes">This is a citizen-made poster intended to improve accessibility, not an official Metro Transit bulletin. ${escapeText(sourceLine(opts.feed || {}))}</footer>
   </article>
   <script>
@@ -1219,8 +1278,15 @@ const FIT_SCRIPT = `
     return { width: Math.max(headW, labW + gap + boxesW), minBox: minBox };
   }
   function packDays(sheet) {
+    var line = document.getElementById("day-line");
+    var stacked = !!(line && line.checked);
+    sheet.classList.toggle("day-line", stacked);
     var groups = sheet.querySelectorAll(".days");
     var g, i;
+    if (stacked) {
+      for (g = 0; g < groups.length; g++) groups[g].style.gridTemplateColumns = "minmax(0, 1fr)";
+      return;
+    }
     for (g = 0; g < groups.length; g++) {
       var days = groups[g];
       var cols = days.querySelectorAll(":scope > .daycol");
@@ -1321,7 +1387,7 @@ const FIT_SCRIPT = `
     for (i = 0; i < rows.length; i++) {
       var roll = rows[i];
       var parent = roll.parentElement;
-      if (!parent || parent.closest(".daycol.compact")) continue;
+      if (!parent || parent.hidden || parent.closest(".daycol.compact")) continue;
       var spec = parent.style.gridTemplateColumns || "";
       var open = spec.indexOf("(");
       var comma = spec.indexOf(",");
@@ -1367,6 +1433,7 @@ const FIT_SCRIPT = `
   }
   function tileTimes(sheet) {
     unwrapRolls(sheet);
+    layoutBands(sheet);
     var nodes = sheet.querySelectorAll(".boxes");
     var i;
     for (i = 0; i < nodes.length; i++) {
@@ -1376,7 +1443,7 @@ const FIT_SCRIPT = `
     }
     for (i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      if (el.classList.contains("roll-row") || el.closest(".daycol.compact")) continue;
+      if (el.hidden || el.classList.contains("roll-row") || el.closest(".daycol.compact")) continue;
       var font = parseFloat(getComputedStyle(el).fontSize) || 11.5;
       var min = Math.max(24, Math.round(3.45 * font));
       var inner = Math.floor(el.getBoundingClientRect().width);
@@ -1394,97 +1461,159 @@ const FIT_SCRIPT = `
       if (w > 0) box.style.width = w + "px";
     }
   }
-  function destInk(el) {
+  function paintHead(el) {
+    var raw = el.getAttribute("data-text");
+    if (!raw) {
+      raw = (el.textContent || "").replace(/\s+/g, " ").trim();
+      if (raw) el.setAttribute("data-text", raw);
+    }
+    if (!raw) return;
+    el.style.padding = "";
+    el.style.letterSpacing = "";
+    el.style.lineHeight = "";
     var cs = getComputedStyle(el);
+    var fontSize = Math.max(1, Math.round(parseFloat(cs.fontSize) || 15));
+    var sample = raw;
+    if (cs.textTransform === "uppercase") sample = raw.toUpperCase();
+    else if (cs.textTransform === "lowercase") sample = raw.toLowerCase();
+    var ls = Math.round(parseFloat(cs.letterSpacing));
+    if (!(ls >= 0)) ls = Math.round(fontSize * 0.12);
     var canvas = el.ownerDocument.createElement("canvas");
     var ctx = canvas.getContext("2d");
-    ctx.font = cs.font;
-    if ("letterSpacing" in ctx) ctx.letterSpacing = cs.letterSpacing;
-    var text = (el.textContent || "").replace(/\s+$/g, "");
-    if (cs.textTransform === "uppercase") text = text.toUpperCase();
-    else if (cs.textTransform === "lowercase") text = text.toLowerCase();
-    var metrics = ctx.measureText(text);
-    return {
-      ascent: metrics.actualBoundingBoxAscent || 0,
-      descent: metrics.actualBoundingBoxDescent || 0
-    };
+    ctx.font = (cs.fontStyle || "normal") + " " + (cs.fontWeight || "400") + " " + fontSize + "px " + cs.fontFamily;
+    var metrics = ctx.measureText(sample);
+    var ascent = metrics.actualBoundingBoxAscent || 0;
+    var descent = metrics.actualBoundingBoxDescent || 0;
+    if (!(ascent > 0)) return;
+    var bare = metrics.width;
+    var inkW = Math.round(bare + ls * Math.max(0, sample.length - 1));
+    var asc = Math.round(ascent);
+    var desc = Math.round(descent);
+    var padX = Math.max(ls, Math.round(fontSize * 0.38));
+    var padY = Math.max(1, Math.round(fontSize * 0.1)) + 1;
+    var w = inkW + padX * 2;
+    var h = asc + desc + padY * 2;
+    var x = padX;
+    var y = padY + asc;
+    var svgNS = "http://www.w3.org/2000/svg";
+    var doc = el.ownerDocument;
+    var svg = doc.createElementNS(svgNS, "svg");
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(h));
+    svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+    var rect = doc.createElementNS(svgNS, "rect");
+    rect.setAttribute("width", String(w));
+    rect.setAttribute("height", String(h));
+    rect.setAttribute("fill", cs.backgroundColor || "#0c0c0c");
+    var text = doc.createElementNS(svgNS, "text");
+    text.setAttribute("x", String(x));
+    text.setAttribute("y", String(y));
+    text.setAttribute("fill", cs.color || "#f5a623");
+    text.setAttribute("font-family", cs.fontFamily);
+    text.setAttribute("font-size", String(fontSize));
+    text.setAttribute("font-weight", cs.fontWeight || "400");
+    var i;
+    for (i = 0; i < sample.length; i++) {
+      var span = doc.createElementNS(svgNS, "tspan");
+      if (i) span.setAttribute("dx", String(ls));
+      span.textContent = sample.charAt(i);
+      text.appendChild(span);
+    }
+    svg.appendChild(rect);
+    svg.appendChild(text);
+    el.textContent = "";
+    el.appendChild(svg);
+    el.style.padding = "0";
+    el.style.letterSpacing = "0";
+    el.style.lineHeight = "0";
+    el.setAttribute("aria-label", sample);
   }
   function centerHeads(sheet) {
-    var nodes = sheet.querySelectorAll(".hy-dest, .note-led, .only-led");
+    var dests = sheet.querySelectorAll(".hy-dest");
     var i;
+    for (i = 0; i < dests.length; i++) paintHead(dests[i]);
+    var nodes = sheet.querySelectorAll(".note-led, .only-led");
     for (i = 0; i < nodes.length; i++) {
       nodes[i].style.paddingTop = "";
       nodes[i].style.paddingBottom = "";
+      nodes[i].style.paddingLeft = "";
+      nodes[i].style.paddingRight = "";
     }
-    var pass;
-    for (pass = 0; pass < 2; pass++) {
-      for (i = 0; i < nodes.length; i++) {
-        var el = nodes[i];
-        var ink = destInk(el);
-        if (!(ink.ascent > 0)) continue;
-        var probe = el.ownerDocument.createElement("span");
-        probe.setAttribute("aria-hidden", "true");
-        probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0;border:0;line-height:0;";
-        el.appendChild(probe);
-        var baseline = probe.getBoundingClientRect().bottom;
-        probe.remove();
-        var textTop = baseline - ink.ascent;
-        var textBottom = baseline + ink.descent;
-        var box = el.getBoundingClientRect();
-        var cs = getComputedStyle(el);
-        var borderTop = parseFloat(cs.borderTopWidth) || 0;
-        var borderBottom = parseFloat(cs.borderBottomWidth) || 0;
-        var padTop = parseFloat(cs.paddingTop) || 0;
-        var padBottom = parseFloat(cs.paddingBottom) || 0;
-        var innerTop = box.top + borderTop;
-        var innerBottom = box.bottom - borderBottom;
-        var shift = (innerTop + innerBottom) / 2 - (textTop + textBottom) / 2;
-        if (Math.abs(shift) < 0.05) continue;
-        el.style.paddingTop = Math.max(0, padTop + shift).toFixed(3) + "px";
-        el.style.paddingBottom = Math.max(0, padBottom - shift).toFixed(3) + "px";
-      }
+    for (i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var cs = getComputedStyle(el);
+      var vt = parseFloat(cs.paddingTop) || 0;
+      var vb = parseFloat(cs.paddingBottom) || 0;
+      var hl = parseFloat(cs.paddingLeft) || 0;
+      var hr = parseFloat(cs.paddingRight) || 0;
+      var vEach = Math.round((vt + vb) / 2);
+      var hEach = Math.round((hl + hr) / 2);
+      el.style.paddingTop = vEach + "px";
+      el.style.paddingBottom = vEach + "px";
+      el.style.paddingLeft = hEach + "px";
+      el.style.paddingRight = hEach + "px";
     }
   }
-  function timeDy(box, ink, ctx) {
-    var textNode = ink.firstChild;
-    while (textNode && textNode.nodeType !== 3) textNode = textNode.nextSibling;
-    if (!textNode) return 0;
-    var cs = getComputedStyle(ink);
-    ctx.font = cs.fontStyle + " " + cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
-    var metrics = ctx.measureText(textNode.nodeValue || "");
+  function paintTime(box, ctx) {
+    var ink = box.querySelector(".tink");
+    if (!ink) return;
+    var clock = ink.getAttribute("data-clock");
+    if (!clock) {
+      var src = ink.querySelector(".tink-src");
+      clock = ((src ? src.textContent : ink.textContent) || "").replace(/am$/, "").trim();
+      if (clock) ink.setAttribute("data-clock", clock);
+    }
+    if (!clock) return;
+    var suffix = ink.getAttribute("data-suffix") || "";
+    var cute = document.getElementById("cute-mode");
+    var text = suffix && cute && cute.checked ? clock : clock + suffix;
+    var cs = getComputedStyle(box);
+    var fontSize = parseFloat(cs.fontSize) || 11.5;
+    var weight = cs.fontWeight || "500";
+    var family = cs.fontFamily || "sans-serif";
+    ctx.font = (cs.fontStyle || "normal") + " " + weight + " " + fontSize + "px " + family;
+    var metrics = ctx.measureText(text);
     var ascent = metrics.actualBoundingBoxAscent || 0;
     var descent = metrics.actualBoundingBoxDescent || 0;
-    if (!(ascent > 0)) return 0;
-    var probe = ink.ownerDocument.createElement("span");
-    probe.setAttribute("aria-hidden", "true");
-    probe.style.cssText = "display:inline-block;width:0;height:0;vertical-align:baseline;padding:0;margin:0;border:0;line-height:0;";
-    ink.appendChild(probe);
-    var baseline = probe.getBoundingClientRect().bottom;
-    probe.remove();
-    var b = box.getBoundingClientRect();
-    var bs = getComputedStyle(box);
-    var innerMidY = (b.top + (parseFloat(bs.borderTopWidth) || 0) + b.bottom - (parseFloat(bs.borderBottomWidth) || 0)) / 2;
-    var inkMidY = baseline + ((descent - ascent) / 2);
-    var dy = innerMidY - inkMidY;
-    return Math.abs(dy) < 0.05 ? 0 : Math.round(dy * 1000) / 1000;
+    if (!(ascent > 0)) return;
+    var asc = Math.round(ascent);
+    var desc = Math.round(descent);
+    var innerW = box.clientWidth;
+    var innerH = box.clientHeight;
+    if (!(innerW > 0) || !(innerH > 0)) return;
+    var top = Math.round((innerH - asc - desc) / 2);
+    var y = top + asc;
+    var x = Math.round(innerW / 2);
+    var svgNS = "http://www.w3.org/2000/svg";
+    var doc = box.ownerDocument;
+    var svg = doc.createElementNS(svgNS, "svg");
+    svg.setAttribute("width", String(innerW));
+    svg.setAttribute("height", String(innerH));
+    svg.setAttribute("viewBox", "0 0 " + innerW + " " + innerH);
+    svg.setAttribute("aria-hidden", "true");
+    var node = doc.createElementNS(svgNS, "text");
+    node.setAttribute("x", String(x));
+    node.setAttribute("y", String(y));
+    node.setAttribute("text-anchor", "middle");
+    node.setAttribute("fill", cs.color || "#111");
+    node.setAttribute("font-family", family);
+    node.setAttribute("font-size", String(fontSize));
+    node.setAttribute("font-weight", weight);
+    node.setAttribute("font-variant-numeric", "tabular-nums");
+    node.textContent = text;
+    svg.appendChild(node);
+    var prev = ink.querySelector("svg");
+    if (prev) prev.remove();
+    ink.appendChild(svg);
+    ink.setAttribute("aria-label", text);
   }
   function centerTimes(sheet) {
     var boxes = sheet.querySelectorAll(".tbox");
     if (!boxes.length) return;
     var canvas = sheet.ownerDocument.createElement("canvas");
     var ctx = canvas.getContext("2d");
-    var cache = {};
-    var i, box, ink, cs, key, dy;
-    for (i = 0; i < boxes.length; i++) {
-      box = boxes[i];
-      ink = box.querySelector(".tink");
-      if (!ink) continue;
-      cs = getComputedStyle(ink);
-      key = cs.fontSize + " " + cs.fontWeight + " " + (box.classList.contains("roll") ? "r" : "n");
-      if (cache[key] == null) cache[key] = timeDy(box, ink, ctx);
-      dy = cache[key];
-      ink.style.transform = dy ? "translateY(" + dy + "px)" : "";
-    }
+    var i;
+    for (i = 0; i < boxes.length; i++) paintTime(boxes[i], ctx);
   }
   function blockNatural(block) {
     var cols = block.querySelectorAll(":scope > .days > .daycol");
@@ -1540,7 +1669,7 @@ const FIT_SCRIPT = `
       while (pair.firstChild) host.insertBefore(pair.firstChild, pair);
       pair.remove();
     }
-    var rules = Array.prototype.slice.call(host.querySelectorAll(":scope > .family-rule"));
+    var rules = Array.prototype.slice.call(host.querySelectorAll(":scope > .family-rule, :scope > .half-rule"));
     for (i = 0; i < rules.length; i++) rules[i].remove();
     var prev = "";
     var children = Array.prototype.slice.call(host.children);
@@ -1575,7 +1704,8 @@ const FIT_SCRIPT = `
         j += 1;
       }
       var b = j < nodes.length ? nodes[j] : null;
-      if (b && b.classList.contains("hy-block") && blockNatural(a) <= half && blockNatural(b) <= half) {
+      var sameFamily = b && a.getAttribute("data-family") && a.getAttribute("data-family") === b.getAttribute("data-family");
+      if (b && b.classList.contains("hy-block") && sameFamily && blockNatural(a) <= half && blockNatural(b) <= half) {
         var pair = document.createElement("div");
         pair.className = campusTight(a, b) ? "hy-pair tight" : "hy-pair";
         host.insertBefore(pair, a);
@@ -1586,6 +1716,68 @@ const FIT_SCRIPT = `
         continue;
       }
       i += 1;
+    }
+  }
+  function tuneHalfRules(host) {
+    var stale = Array.prototype.slice.call(host.querySelectorAll(":scope > .half-rule"));
+    var i;
+    for (i = 0; i < stale.length; i++) stale[i].remove();
+    function familyOf(block) {
+      return block ? (block.getAttribute("data-family") || "") : "";
+    }
+    function sides(pair) {
+      var blocks = pair.querySelectorAll(":scope > .hy-block");
+      return { left: blocks[0] || null, right: blocks[1] || null };
+    }
+    var kids = Array.prototype.slice.call(host.children);
+    function rowBefore(index) {
+      var k;
+      for (k = index - 1; k >= 0; k--) {
+        var el = kids[k];
+        if (!el.parentNode) continue;
+        if (el.classList.contains("family-rule") || el.classList.contains("half-rule")) continue;
+        return el;
+      }
+      return null;
+    }
+    for (i = 0; i < kids.length; i++) {
+      var el = kids[i];
+      if (!el.parentNode) continue;
+      if (el.classList.contains("hy-pair")) {
+        var pair = sides(el);
+        if (!pair.right) continue;
+        var above = rowBefore(i);
+        var aboveRight = "";
+        var aboveLeft = "";
+        if (above && above.classList.contains("hy-block")) {
+          aboveRight = familyOf(above);
+          aboveLeft = aboveRight;
+        } else if (above && above.classList.contains("hy-pair")) {
+          var up = sides(above);
+          aboveLeft = familyOf(up.left);
+          aboveRight = familyOf(up.right);
+        }
+        var rightFam = familyOf(pair.right);
+        if (aboveRight && rightFam && aboveRight !== rightFam && aboveLeft === familyOf(pair.left)) {
+          var rightRule = host.ownerDocument.createElement("hr");
+          rightRule.className = "half-rule right";
+          host.insertBefore(rightRule, el);
+        }
+      }
+      if (el.classList.contains("hy-block")) {
+        var prevRow = rowBefore(i);
+        if (!prevRow || !prevRow.classList.contains("hy-pair")) continue;
+        var ps = sides(prevRow);
+        var fullFam = familyOf(el);
+        var sameL = familyOf(ps.left) === fullFam && fullFam;
+        var sameR = familyOf(ps.right) === fullFam && fullFam;
+        if (!sameL === !sameR) continue;
+        var between = el.previousElementSibling;
+        if (between && between.classList.contains("family-rule")) between.remove();
+        var leftRule = host.ownerDocument.createElement("hr");
+        leftRule.className = "half-rule left";
+        host.insertBefore(leftRule, el);
+      }
     }
   }
   function pairSideBySide(sheet) {
@@ -1599,10 +1791,84 @@ const FIT_SCRIPT = `
       var hostW = host.getBoundingClientRect().width || pageW;
       var half = hostW / 2 - 0.1 * inchPx();
       if (half > 0) pairNarrow(host, half);
+      tuneHalfRules(host);
     }
+  }
+  function restoreBands(sheet) {
+    var cols = sheet.querySelectorAll(".daycol");
+    var i, k, nodes;
+    for (i = 0; i < cols.length; i++) {
+      var col = cols[i];
+      var amSet = col.querySelector(":scope > .am-set");
+      var pmSet = col.querySelector(":scope > .pm-set");
+      if (amSet) amSet.classList.remove("solo");
+      if (pmSet) pmSet.classList.remove("solo");
+      if (amSet && pmSet) {
+        nodes = Array.prototype.slice.call(amSet.querySelectorAll(":scope > .tbox.pm, :scope > .roll-row"));
+        for (k = 0; k < nodes.length; k++) pmSet.appendChild(nodes[k]);
+        pmSet.hidden = false;
+      }
+    }
+  }
+  function posterOneRoute(sheet) {
+    var names = {};
+    var blocks = sheet.querySelectorAll(".hy-block");
+    var i, name;
+    for (i = 0; i < blocks.length; i++) {
+      name = blocks[i].getAttribute("data-family") || "";
+      if (name) names[name] = 1;
+    }
+    var count = 0;
+    for (name in names) if (Object.prototype.hasOwnProperty.call(names, name)) count += 1;
+    return count <= 1;
+  }
+  function layoutBands(sheet) {
+    restoreBands(sheet);
+    var cute = document.getElementById("cute-mode");
+    var on = !cute || cute.checked;
+    var alone = posterOneRoute(sheet);
+    var cols = sheet.querySelectorAll(".daycol");
+    var i;
+    var cuteFlow = false;
+    for (i = 0; i < cols.length; i++) {
+      var col = cols[i];
+      var amSet = col.querySelector(":scope > .am-set");
+      var pmSet = col.querySelector(":scope > .pm-set");
+      var amLab = col.querySelector(':scope > .band-lab[data-band="am"]');
+      var pmLab = col.querySelector(':scope > .band-lab[data-band="pm"]');
+      var hasAm = !!(amSet && amSet.querySelector(".tbox"));
+      var hasPm = !!(pmSet && pmSet.querySelector(".tbox"));
+      var last = col.getAttribute("data-last-am");
+      var first = col.getAttribute("data-first-pm");
+      var gap = last !== "" && first !== "" && last != null && first != null ? Number(first) - Number(last) : NaN;
+      var markBand = !hasAm || !hasPm || gap > 120;
+      var classic = !on || (alone && markBand);
+      if (!classic && hasAm && hasPm && amSet && pmSet) {
+        while (pmSet.firstChild) amSet.appendChild(pmSet.firstChild);
+        pmSet.hidden = true;
+        amSet.classList.add("solo");
+        if (amLab) amLab.hidden = true;
+        if (pmLab) pmLab.hidden = true;
+        cuteFlow = true;
+      } else if (!classic) {
+        if (pmSet) pmSet.hidden = !hasPm;
+        if (amSet && hasAm) amSet.classList.add("solo");
+        if (pmSet && hasPm) pmSet.classList.add("solo");
+        if (amLab) amLab.hidden = true;
+        if (pmLab) pmLab.hidden = true;
+        cuteFlow = true;
+      } else {
+        if (pmSet) pmSet.hidden = !hasPm;
+        if (amLab) amLab.hidden = !hasAm;
+        if (pmLab) pmLab.hidden = !hasPm;
+      }
+    }
+    var key = sheet.querySelector(".time-key");
+    if (key) key.hidden = !cuteFlow;
   }
   function relayout(sheet) {
     clearCompact(sheet);
+    restoreBands(sheet);
     pairSideBySide(sheet);
     tileTimes(sheet);
     packDays(sheet);
@@ -1707,6 +1973,10 @@ const FIT_SCRIPT = `
   if (btn) btn.addEventListener("click", printPoster);
   var fit = document.getElementById("fit-page");
   if (fit) fit.addEventListener("change", apply);
+  var cute = document.getElementById("cute-mode");
+  if (cute) cute.addEventListener("change", apply);
+  var dayLine = document.getElementById("day-line");
+  if (dayLine) dayLine.addEventListener("change", apply);
   if (document.readyState !== "complete") window.addEventListener("load", apply);
   else apply();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(apply);

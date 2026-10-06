@@ -154,6 +154,18 @@ h1 {
 .check { display: flex; gap: 6px; align-items: center; cursor: pointer; }
 .check[hidden] { display: none; }
 .map-filter { margin-top: 12px; }
+.map-count { margin: 8px 0 0; font-size: 13px; color: #333; }
+.jur-row { display: flex; align-items: center; gap: 8px; }
+.jur-only {
+  border: 0;
+  background: transparent;
+  color: #333366;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
 .map-advanced { margin-top: 14px; font-size: 14px; }
 .map-advanced summary { cursor: pointer; font-weight: 600; }
 .map-advanced .check { margin-top: 8px; }

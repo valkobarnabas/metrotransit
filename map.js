@@ -6,6 +6,8 @@ const routeFilterEl = document.getElementById("route-filter");
 const shelterEl = document.getElementById("filter-shelter");
 const multiEl = document.getElementById("filter-multi");
 const jurListEl = document.getElementById("jur-list");
+const countEl = document.getElementById("stop-count");
+const NON_SCHOOL = "__nonschool";
 
 const JUR_LABEL = {
   CMAD: "Madison",
@@ -227,6 +229,7 @@ function selectedRoute() {
 function servesSelectedRoute(stop) {
   const route = selectedRoute();
   if (!route) return true;
+  if (route === NON_SCHOOL) return nonSchoolCount(stop) >= 1;
   return (stop.routes || []).some((r) => r.n === route);
 }
 
@@ -279,11 +282,22 @@ function fillRouteFilter() {
     if (aLetter !== bLetter) return aLetter ? -1 : 1;
     return String(a.n).localeCompare(String(b.n), undefined, { numeric: true });
   });
-  const options = ['<option value="">All routes</option>'].concat(
+  const options = ['<option value="">All routes</option>', '<option value="' + NON_SCHOOL + '">All non-school</option>'].concat(
     routes.map((route) => `<option value="${escapeText(route.n)}">${escapeText(route.n)}${route.s ? " extra" : ""}</option>`)
   );
   routeFilterEl.innerHTML = options.join("");
   routeFilterEl.disabled = false;
+}
+
+function redrawStops() {
+  if (canvas && typeof canvas._update === "function") canvas._update();
+}
+
+function updateStopCount() {
+  if (!countEl) return;
+  let n = 0;
+  for (const stop of stops) if (stopVisible(stop)) n += 1;
+  countEl.textContent = "Showing " + n.toLocaleString() + (n === 1 ? " stop" : " stops");
 }
 
 function applyRouteFilter() {
@@ -296,6 +310,8 @@ function applyRouteFilter() {
       map.removeLayer(stop.marker);
     }
   }
+  redrawStops();
+  updateStopCount();
 }
 
 function fillJurisdictions() {
@@ -307,12 +323,15 @@ function fillJurisdictions() {
   jurListEl.innerHTML = order
     .map((code) => {
       const label = JUR_LABEL[code] || code;
-      return `<label class="check"><input type="checkbox" value="${escapeText(code)}" checked /> ${escapeText(label)}</label>`;
+      return `<div class="jur-row"><label class="check"><input type="checkbox" value="${escapeText(code)}" checked /> ${escapeText(label)}</label><button type="button" class="jur-only">only</button></div>`;
     })
     .join("");
-  jurListEl.querySelectorAll("input").forEach((box) => box.addEventListener("change", () => {
-    applyRouteFilter();
-    if (qEl.value.trim()) renderResults(searchStops(qEl.value));
+  jurListEl.querySelectorAll("input").forEach((box) => box.addEventListener("change", onFilterChange));
+  jurListEl.querySelectorAll(".jur-only").forEach((btn) => btn.addEventListener("click", () => {
+    const row = btn.closest(".jur-row");
+    const mine = row && row.querySelector("input");
+    jurListEl.querySelectorAll("input").forEach((box) => { box.checked = box === mine; });
+    onFilterChange();
   }));
 }
 
@@ -543,6 +562,8 @@ clearEl.addEventListener("click", () => {
   for (const stop of stops) {
     if (stop.marker && !map.hasLayer(stop.marker)) stop.marker.addTo(map);
   }
+  redrawStops();
+  updateStopCount();
   statusEl.textContent = "";
 });
 
@@ -574,6 +595,7 @@ Promise.all([loadGzipJson("data/served.json.gz"), fetch("data/stop-meta.json").t
     for (const stop of stops) hookMarker(stop);
     fillRouteFilter();
     fillJurisdictions();
+    updateStopCount();
     qEl.disabled = false;
     qEl.focus();
     statusEl.textContent = "";
