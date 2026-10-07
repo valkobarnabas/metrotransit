@@ -713,8 +713,7 @@ function renderHybridHtml(opts) {
     }
     .mast-rule svg,
     .next-stops svg { width: 8px; height: 6px; fill: currentColor; display: block; }
-    .next-stops .ns-mark { transform: translateY(-1px); }
-    .next-stops .ns-mark svg { transform: translateY(1px); }
+    .next-stops svg { transform: translateY(1px); }
     .flow { display: block; }
     .sheet.two-col .flow {
       display: grid;
