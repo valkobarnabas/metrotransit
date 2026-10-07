@@ -549,7 +549,8 @@ function renderHybridHtml(opts) {
   const qr = opts.qr || "";
   const predUrl = opts.predUrl || "";
   const part = opts.part === "timetable" || opts.part === "stops" ? opts.part : "both";
-  const times = part === "stops" ? "" : timesHtml(headings);
+  const timeKey = `<div class="time-key"><span>Key:</span><span class="key-sample">AM</span><span class="key-sample pm">PM</span></div>`;
+  const times = part === "stops" ? "" : `${timesHtml(headings)}\n${timeKey}`;
   const manyLists = lists.length > 1;
   const listHtml = lists
     .map((row) => {
@@ -1097,7 +1098,7 @@ function renderHybridHtml(opts) {
     .note-led .to-gap,
     .only-led .to-gap { visibility: hidden; }
     .time-key {
-      display: inline-flex;
+      display: flex;
       align-items: center;
       justify-content: flex-start;
       gap: 0.4em;
@@ -1105,6 +1106,7 @@ function renderHybridHtml(opts) {
       width: max-content;
       max-width: 100%;
       margin-top: calc(10px * var(--fit));
+      margin-bottom: calc(12px * var(--fit));
       padding: 0.35em 0.55em;
       border: 1px solid #111;
       font-size: calc(11px * var(--fit));
@@ -1152,6 +1154,7 @@ function renderHybridHtml(opts) {
     <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
     <label id="cute-label"><input type="checkbox" id="cute-mode" checked /> Cute mode</label>
     <label id="day-line-label"><input type="checkbox" id="day-line" checked /> Day per line</label>
+    <label id="route-line-label"><input type="checkbox" id="route-line" /> One route per line</label>
     <span class="hint" id="page-count">Measuring size…</span>
   </div>
   <article class="sheet" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
@@ -1173,7 +1176,6 @@ function renderHybridHtml(opts) {
       ${times}
       ${listHtmlOut}
     </div>
-    <div class="time-key"><span>Key:</span><span class="key-sample">AM</span><span class="key-sample pm">PM</span></div>
     <footer class="notes">This is a citizen-made poster intended to improve accessibility, not an official Metro Transit bulletin. ${escapeText(sourceLine(opts.feed || {}))}</footer>
   </article>
   <script>
@@ -1257,6 +1259,33 @@ const FIT_SCRIPT = `
       groups[i].style.gridTemplateColumns = "repeat(" + Math.max(1, n) + ", minmax(0, 1fr))";
     }
   }
+  function plainCount(set) {
+    if (!set) return 0;
+    var n = 0;
+    var kids = set.children;
+    var k;
+    for (k = 0; k < kids.length; k++) {
+      if (kids[k].classList.contains("tbox") && !kids[k].classList.contains("roll")) n += 1;
+    }
+    return n;
+  }
+  function bandWillMerge(col) {
+    var cute = document.getElementById("cute-mode");
+    if (cute && !cute.checked) return false;
+    var amSet = col.querySelector(":scope > .am-set");
+    var pmSet = col.querySelector(":scope > .pm-set");
+    var hasAm = plainCount(amSet) > 0;
+    var hasPm = plainCount(pmSet) > 0;
+    if (!hasAm || !hasPm) return false;
+    var blocks = col.ownerDocument.querySelectorAll(".hy-block");
+    if (blocks.length <= 1) {
+      var last = col.getAttribute("data-last-am");
+      var first = col.getAttribute("data-first-pm");
+      var gap = last !== "" && first !== "" && last != null && first != null ? Number(first) - Number(last) : NaN;
+      if (gap > 120) return false;
+    }
+    return true;
+  }
   function dayNatural(col) {
     var nodes = col.querySelectorAll(":scope > .boxes");
     var i, font = 11.5, minBox = 40, boxesW = 0, count, kids, k, rolls, r, rollW;
@@ -1272,6 +1301,10 @@ const FIT_SCRIPT = `
       rollW = 0;
       for (r = 0; r < rolls.length; r++) rollW += rolls[r].getBoundingClientRect().width;
       if (rollW > boxesW) boxesW = rollW;
+    }
+    if (bandWillMerge(col)) {
+      var merged = (plainCount(col.querySelector(":scope > .am-set")) + plainCount(col.querySelector(":scope > .pm-set"))) * minBox;
+      if (merged > boxesW) boxesW = merged;
     }
     var lab = col.querySelector(".band-lab");
     var labW = lab ? lab.getBoundingClientRect().width : 0;
@@ -1806,10 +1839,13 @@ const FIT_SCRIPT = `
     var hosts = pairHosts(sheet);
     var flow = sheet.querySelector(".flow");
     var pageW = flow ? flow.getBoundingClientRect().width : 0;
+    var solo = document.getElementById("route-line");
+    var ownLine = !!(solo && solo.checked);
     var h;
     for (h = 0; h < hosts.length; h++) {
       var host = hosts[h];
       flattenPairs(host);
+      if (ownLine) continue;
       var hostW = host.getBoundingClientRect().width || pageW;
       var half = hostW / 2 - 0.1 * inchPx();
       if (half > 0) pairNarrow(host, half);
@@ -1990,6 +2026,8 @@ const FIT_SCRIPT = `
   if (cute) cute.addEventListener("change", apply);
   var dayLine = document.getElementById("day-line");
   if (dayLine) dayLine.addEventListener("change", apply);
+  var routeLine = document.getElementById("route-line");
+  if (routeLine) routeLine.addEventListener("change", apply);
   if (document.readyState !== "complete") window.addEventListener("load", apply);
   else apply();
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(apply);
