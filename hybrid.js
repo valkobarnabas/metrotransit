@@ -1500,7 +1500,7 @@ const FIT_SCRIPT = `
   function paintHead(el) {
     var raw = el.getAttribute("data-text");
     if (!raw) {
-      raw = (el.textContent || "").replace(/\s+/g, " ").trim();
+      raw = (el.textContent || "").replace(/\\s+/g, " ").trim();
       if (raw) el.setAttribute("data-text", raw);
     }
     if (!raw) return;
@@ -1564,31 +1564,94 @@ const FIT_SCRIPT = `
     el.style.lineHeight = "0";
     el.setAttribute("aria-label", sample);
   }
+  function ledLabel(el) {
+    var raw = el.getAttribute("data-text");
+    if (raw) return raw;
+    var clone = el.cloneNode(true);
+    var gaps = clone.querySelectorAll(".to-gap");
+    var g;
+    for (g = 0; g < gaps.length; g++) gaps[g].remove();
+    raw = (clone.textContent || "").replace(/\\s+/g, " ").trim();
+    var cs = getComputedStyle(el);
+    if (cs.textTransform === "uppercase") raw = raw.toUpperCase();
+    else if (cs.textTransform === "lowercase") raw = raw.toLowerCase();
+    if (raw) el.setAttribute("data-text", raw);
+    return raw;
+  }
+  function paintLed(el) {
+    var sample = ledLabel(el);
+    if (!sample) return;
+    var cs = getComputedStyle(el);
+    var padX = Math.round(parseFloat(cs.paddingLeft) || 0);
+    var fontSize = Math.max(1, Math.round(parseFloat(cs.fontSize) || 8));
+    if (!(padX > 0)) padX = Math.max(1, Math.round(fontSize * 0.3));
+    el.style.padding = "";
+    el.style.letterSpacing = "";
+    el.style.lineHeight = "";
+    el.style.height = "";
+    cs = getComputedStyle(el);
+    var ls = Math.round(parseFloat(cs.letterSpacing));
+    if (!(ls >= 0)) ls = 0;
+    var canvas = el.ownerDocument.createElement("canvas");
+    var ctx = canvas.getContext("2d");
+    ctx.font = (cs.fontStyle || "normal") + " " + (cs.fontWeight || "400") + " " + fontSize + "px " + cs.fontFamily;
+    var metrics = ctx.measureText(sample);
+    var ascent = metrics.actualBoundingBoxAscent || 0;
+    var descent = metrics.actualBoundingBoxDescent || 0;
+    if (!(ascent > 0)) return;
+    var asc = Math.round(ascent);
+    var desc = Math.round(descent);
+    var innerH = el.clientHeight;
+    if (!(innerH > asc + desc)) innerH = asc + desc + 2;
+    var inkW = Math.round(metrics.width + ls * Math.max(0, sample.length - 1));
+    var w = inkW + padX * 2;
+    var top = Math.round((innerH - asc - desc) / 2);
+    var y = top + asc;
+    var svgNS = "http://www.w3.org/2000/svg";
+    var doc = el.ownerDocument;
+    var svg = doc.createElementNS(svgNS, "svg");
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(innerH));
+    svg.setAttribute("viewBox", "0 0 " + w + " " + innerH);
+    var rect = doc.createElementNS(svgNS, "rect");
+    rect.setAttribute("width", String(w));
+    rect.setAttribute("height", String(innerH));
+    rect.setAttribute("fill", cs.backgroundColor || "#0c0c0c");
+    var text = doc.createElementNS(svgNS, "text");
+    text.setAttribute("x", String(padX));
+    text.setAttribute("y", String(y));
+    text.setAttribute("fill", cs.color || "#f5a623");
+    text.setAttribute("font-family", cs.fontFamily);
+    text.setAttribute("font-size", String(fontSize));
+    text.setAttribute("font-weight", cs.fontWeight || "400");
+    var i;
+    for (i = 0; i < sample.length; i++) {
+      var span = doc.createElementNS(svgNS, "tspan");
+      if (i) span.setAttribute("dx", String(ls));
+      span.textContent = sample.charAt(i);
+      text.appendChild(span);
+    }
+    svg.appendChild(rect);
+    svg.appendChild(text);
+    el.textContent = "";
+    el.appendChild(svg);
+    var drawn = text.getBBox();
+    if (drawn && drawn.height) {
+      var shift = Math.round((innerH - drawn.height) / 2 - drawn.y);
+      if (shift) text.setAttribute("y", String(y + shift));
+    }
+    el.style.padding = "0";
+    el.style.letterSpacing = "0";
+    el.style.lineHeight = "0";
+    el.style.height = (innerH + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) + "px";
+    el.setAttribute("aria-label", sample);
+  }
   function centerHeads(sheet) {
     var dests = sheet.querySelectorAll(".hy-dest");
     var i;
     for (i = 0; i < dests.length; i++) paintHead(dests[i]);
     var nodes = sheet.querySelectorAll(".note-led, .only-led");
-    for (i = 0; i < nodes.length; i++) {
-      nodes[i].style.paddingTop = "";
-      nodes[i].style.paddingBottom = "";
-      nodes[i].style.paddingLeft = "";
-      nodes[i].style.paddingRight = "";
-    }
-    for (i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      var cs = getComputedStyle(el);
-      var vt = parseFloat(cs.paddingTop) || 0;
-      var vb = parseFloat(cs.paddingBottom) || 0;
-      var hl = parseFloat(cs.paddingLeft) || 0;
-      var hr = parseFloat(cs.paddingRight) || 0;
-      var vEach = Math.round((vt + vb) / 2);
-      var hEach = Math.round((hl + hr) / 2);
-      el.style.paddingTop = vEach + "px";
-      el.style.paddingBottom = vEach + "px";
-      el.style.paddingLeft = hEach + "px";
-      el.style.paddingRight = hEach + "px";
-    }
+    for (i = 0; i < nodes.length; i++) paintLed(nodes[i]);
   }
   function paintTime(box, ctx) {
     var ink = box.querySelector(".tink");
