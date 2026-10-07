@@ -1497,6 +1497,29 @@ const FIT_SCRIPT = `
       if (w > 0) box.style.width = w + "px";
     }
   }
+  var PLANE_D = "M7.16 2.25L9.71 10.8 4.7 10.8 3.18 9.12 1.2 9.12 2.46 12.05 1.2 14.93 3.18 14.93 4.68 13.29 9.69 13.29 7.16 21.75 9.14 21.9 14.6 13.29 21.53 13.29C21.88 13.29 22.18 13.17 22.43 12.95 22.68 12.72 22.8 12.42 22.8 12.05 22.8 11.88 22.77 11.72 22.7 11.57 22.64 11.42 22.55 11.29 22.43 11.17 22.31 11.05 22.17 10.96 22.02 10.9 21.86 10.83 21.7 10.8 21.53 10.8L14.64 10.8 9.14 2.1Z";
+  function addPlane(doc, svg, x, y, size, fill) {
+    var svgNS = "http://www.w3.org/2000/svg";
+    var icon = doc.createElementNS(svgNS, "svg");
+    icon.setAttribute("x", String(x));
+    icon.setAttribute("y", String(y));
+    icon.setAttribute("width", String(size));
+    icon.setAttribute("height", String(size));
+    icon.setAttribute("viewBox", "0 0 24 24");
+    icon.setAttribute("aria-hidden", "true");
+    var path = doc.createElementNS(svgNS, "path");
+    path.setAttribute("fill", fill);
+    path.setAttribute("d", PLANE_D);
+    icon.appendChild(path);
+    svg.appendChild(icon);
+  }
+  function planePad(sample, fontSize, chipH) {
+    if (sample !== "AIRPORT") return null;
+    var size = Math.round(fontSize);
+    if (size > chipH - 2) size = Math.max(1, chipH - 2);
+    var gap = Math.max(1, Math.round(fontSize * 0.18));
+    return { size: size, gap: gap, extra: (size + gap) * 2 };
+  }
   function paintHead(el) {
     var raw = el.getAttribute("data-text");
     if (!raw) {
@@ -1527,9 +1550,10 @@ const FIT_SCRIPT = `
     var desc = Math.round(descent);
     var padX = Math.max(ls, Math.round(fontSize * 0.38));
     var padY = Math.max(1, Math.round(fontSize * 0.1)) + 1;
-    var w = inkW + padX * 2;
     var h = asc + desc + padY * 2;
-    var x = padX;
+    var planes = planePad(sample, fontSize, h);
+    var w = inkW + padX * 2 + (planes ? planes.extra : 0);
+    var x = padX + (planes ? planes.size + planes.gap : 0);
     var y = padY + asc;
     var svgNS = "http://www.w3.org/2000/svg";
     var doc = el.ownerDocument;
@@ -1557,6 +1581,12 @@ const FIT_SCRIPT = `
     }
     svg.appendChild(rect);
     svg.appendChild(text);
+    if (planes) {
+      var py = Math.round((h - planes.size) / 2);
+      var fill = cs.color || "#f5a623";
+      addPlane(doc, svg, padX, py, planes.size, fill);
+      addPlane(doc, svg, x + inkW + planes.gap, py, planes.size, fill);
+    }
     el.textContent = "";
     el.appendChild(svg);
     el.style.padding = "0";
@@ -1604,7 +1634,9 @@ const FIT_SCRIPT = `
     var innerH = el.clientHeight;
     if (!(innerH > asc + desc)) innerH = asc + desc + 2;
     var inkW = Math.round(metrics.width + ls * Math.max(0, sample.length - 1));
-    var w = inkW + padX * 2;
+    var planes = planePad(sample, fontSize, innerH);
+    var w = inkW + padX * 2 + (planes ? planes.extra : 0);
+    var textX = padX + (planes ? planes.size + planes.gap : 0);
     var top = Math.round((innerH - asc - desc) / 2);
     var y = top + asc;
     var svgNS = "http://www.w3.org/2000/svg";
@@ -1618,7 +1650,7 @@ const FIT_SCRIPT = `
     rect.setAttribute("height", String(innerH));
     rect.setAttribute("fill", cs.backgroundColor || "#0c0c0c");
     var text = doc.createElementNS(svgNS, "text");
-    text.setAttribute("x", String(padX));
+    text.setAttribute("x", String(textX));
     text.setAttribute("y", String(y));
     text.setAttribute("fill", cs.color || "#f5a623");
     text.setAttribute("font-family", cs.fontFamily);
@@ -1633,6 +1665,12 @@ const FIT_SCRIPT = `
     }
     svg.appendChild(rect);
     svg.appendChild(text);
+    if (planes) {
+      var py = Math.round((innerH - planes.size) / 2);
+      var fill = cs.color || "#f5a623";
+      addPlane(doc, svg, padX, py, planes.size, fill);
+      addPlane(doc, svg, textX + inkW + planes.gap, py, planes.size, fill);
+    }
     el.textContent = "";
     el.appendChild(svg);
     var drawn = text.getBBox();
