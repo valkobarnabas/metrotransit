@@ -817,6 +817,124 @@ function addHourMinutes(hours, route, code, minutes) {
   return hours;
 }
 
+function dayNames(key) {
+  const k = String(key || "").toLowerCase();
+  const special = {
+    weekday: ["mon", "tue", "wed", "thu", "fri"],
+    weekend: ["sat", "sun"],
+    frisat: ["fri", "sat"],
+    mt: ["mon", "tue", "wed", "thu"],
+    sunthu: ["sun", "mon", "tue", "wed", "thu"],
+    daily: ["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+    monday: ["mon"],
+    tuesday: ["tue"],
+    wednesday: ["wed"],
+    thursday: ["thu"],
+    friday: ["fri"],
+    saturday: ["sat"],
+    sunday: ["sun"],
+    mon: ["mon"],
+    tue: ["tue"],
+    wed: ["wed"],
+    thu: ["thu"],
+    fri: ["fri"],
+    sat: ["sat"],
+    sun: ["sun"],
+  };
+  if (special[k]) return special[k];
+  const order = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  const found = [];
+  let i = 0;
+  while (i < k.length) {
+    let hit = "";
+    for (const name of order) {
+      if (k.startsWith(name, i) && name.length > hit.length) hit = name;
+    }
+    if (!hit) break;
+    found.push(hit);
+    i += hit.length;
+  }
+  return found;
+}
+
+function depMinute(dep) {
+  const hh = Number(dep && dep.hh);
+  const mm = Number(dep && dep.mm) || 0;
+  if (!Number.isFinite(hh)) return null;
+  return hh * 60 + mm;
+}
+
+function buildClockIndex(byCode) {
+  const index = new Map();
+  for (const [stop, entry] of Object.entries(byCode || {})) {
+    const byRoute = new Map();
+    for (const part of (entry && entry.parts) || []) {
+      const route = String((part.route && part.route.route_short_name) || "").toLowerCase();
+      if (!route) continue;
+      let list = byRoute.get(route);
+      if (!list) byRoute.set(route, (list = []));
+      for (const heading of part.headings || []) {
+        const board = heading.board || {};
+        const code = String(board.code || "").toUpperCase();
+        const dest = String(board.dest || "").toUpperCase();
+        for (const col of heading.columns || []) {
+          const days = dayNames(col.key);
+          if (!days.length) continue;
+          let first = Infinity;
+          let last = -Infinity;
+          for (const dep of col.deps || []) {
+            const t = depMinute(dep);
+            if (t == null) continue;
+            if (t < first) first = t;
+            if (t > last) last = t;
+          }
+          if (first === Infinity) continue;
+          list.push({ code, dest, days, first, last });
+        }
+      }
+    }
+    if (byRoute.size) index.set(String(stop), byRoute);
+  }
+  return index;
+}
+
+function sharesDay(a, b) {
+  for (const day of a || []) {
+    if ((b || []).includes(day)) return true;
+  }
+  return false;
+}
+
+function boardMatchesSpan(span, boards) {
+  for (const board of boards || []) {
+    const code = String((board && board.code) || "").toUpperCase();
+    const dest = String((board && board.dest) || "").toUpperCase();
+    if (code && span.code === code) return true;
+    if (!code && dest && span.dest === dest) return true;
+  }
+  return false;
+}
+
+function clockSpans(clock, stopCode, routeName, boards) {
+  if (!clock) return null;
+  const byRoute = clock.get(String(stopCode));
+  if (!byRoute) return null;
+  const list = byRoute.get(String(routeName || "").toLowerCase()) || [];
+  if (!boards || !boards.length) return list;
+  const matched = list.filter((span) => boardMatchesSpan(span, boards));
+  return matched.length ? matched : list;
+}
+
+function spansConnect(fromSpans, toSpans) {
+  for (const from of fromSpans) {
+    for (const to of toSpans) {
+      if (!sharesDay(from.days, to.days)) continue;
+      if (to.last >= from.first) return true;
+    }
+  }
+  return false;
+}
+
 function serviceSpan(pack, routeName, stopCode) {
   const table = pack && pack.hours;
   if (!table) return null;
@@ -830,7 +948,13 @@ function serviceSpan(pack, routeName, stopCode) {
   return { first, last };
 }
 
-function serviceOverlaps(pack, fromRoute, fromStop, toRoute, toStop) {
+function serviceOverlaps(pack, fromRoute, fromStop, toRoute, toStop, fromBoards) {
+  const fromSpans = clockSpans(pack && pack.clock, fromStop, fromRoute, fromBoards);
+  const toSpans = clockSpans(pack && pack.clock, toStop, toRoute, null);
+  if (fromSpans && toSpans) {
+    if (fromSpans.length && toSpans.length) return spansConnect(fromSpans, toSpans);
+    if (fromSpans.length && !toSpans.length) return false;
+  }
   const from = serviceSpan(pack, fromRoute, fromStop);
   const to = serviceSpan(pack, toRoute, toStop);
   if (!from || !to) return true;
@@ -890,7 +1014,7 @@ function nearbyStopScore(cand, eligible) {
   return n;
 }
 
-function transfersForStop(stopCode, posterRouteName, radius, pack, opts) {
+function transfersForStop(stopCode, posterRouteName, radius, pack, opts, fromBoards) {
   const excludeSchool = !!(opts && opts.excludeSchool);
   const geo = pack.geo || {};
   const stopRoutes = pack.stopRoutes || {};
@@ -900,7 +1024,7 @@ function transfersForStop(stopCode, posterRouteName, radius, pack, opts) {
     !sameRouteName(r.n, posterRouteName) &&
     !(excludeSchool && r.s) &&
     routeDepartsFrom(pack, r.n, at) &&
-    serviceOverlaps(pack, posterRouteName, stopCode, r.n, at);
+    serviceOverlaps(pack, posterRouteName, stopCode, r.n, at, fromBoards);
   const same = here.filter((r) => keep(r, stopCode));
   const nearby = [];
   if (origin && radius > 0) {
@@ -968,10 +1092,10 @@ function transfersHtml(xfer, geo) {
   return `<span class="xfer">${groups.map((g) => groupHtml(g)).join('<span class="xfer-plus">+</span>')}</span>`;
 }
 
-function transfersForStops(codes, posterRouteName, radius, pack, opts) {
+function transfersForStops(codes, posterRouteName, radius, pack, opts, fromBoards) {
   const byName = new Map();
   for (const code of codes || []) {
-    const xfer = transfersForStop(code, posterRouteName, radius, pack, opts);
+    const xfer = transfersForStop(code, posterRouteName, radius, pack, opts, fromBoards);
     for (const r of xfer.same) byName.set(r.n, r);
     for (const x of xfer.others) {
       if (!byName.has(x.r.n)) byName.set(x.r.n, x.r);
@@ -1240,7 +1364,7 @@ function collapseEndNotes(rows) {
   return out;
 }
 
-function rowsHtml(rows, originCode, posterRouteName, radius, pack, locations, excludeSchool) {
+function rowsHtml(rows, originCode, posterRouteName, radius, pack, locations, excludeSchool, fromBoards) {
   const geo = pack.geo || {};
   const out = [];
   let stripe = 0;
@@ -1294,10 +1418,11 @@ function rowsHtml(rows, originCode, posterRouteName, radius, pack, locations, ex
     const alt = !variant && stripe % 2 === 0 ? " alt" : "";
     const extra = variant ? variantClass() : "";
     const xferCodes = row.xferCodes || [row.code];
+    const boards = row.onlyBoards && row.onlyBoards.length ? row.onlyBoards : fromBoards;
     const xfer =
       xferCodes.length > 1
-        ? transfersForStops(xferCodes, posterRouteName, radius, pack, { excludeSchool })
-        : transfersForStop(xferCodes[0], posterRouteName, radius, pack, { excludeSchool });
+        ? transfersForStops(xferCodes, posterRouteName, radius, pack, { excludeSchool }, boards)
+        : transfersForStop(xferCodes[0], posterRouteName, radius, pack, { excludeSchool }, boards);
     const names = (row.alsoCodes && row.alsoCodes.length ? row.alsoCodes : [row.code])
       .map((code) => stopCell(code, geo, row.starTerminus && code === row.code))
       .join(" or<br />");
@@ -1362,6 +1487,7 @@ function postersForStop(pack, stopCode, opts) {
         heading,
         destLabel: board ? headsignLabel(board) : "",
         primaryBoard: board,
+        boards: insts.map((inst) => inst.board).filter(Boolean),
         showHeadboard: split || !!options.showHeadboard,
         color: route.c || "#333366",
         ink: route.t || "#ffffff",
@@ -1442,7 +1568,8 @@ function sheetHtml(poster, pack) {
     poster.radius,
     pack,
     poster.locations,
-    poster.excludeSchool
+    poster.excludeSchool,
+    poster.boards
   );
   const board = poster.showHeadboard ? headboardHtml(poster.primaryBoard) : "";
   const qr = mapQrHtml(poster, pack);
@@ -2056,7 +2183,8 @@ function listSectionHtml(poster, pack) {
     poster.radius,
     pack,
     poster.locations,
-    poster.excludeSchool
+    poster.excludeSchool,
+    poster.boards
   );
   const wide = needsWideStopName(poster) ? " wide-sn" : "";
   return `<section class="list-block${wide}" style="--route:${escapeHtml(poster.color)};--route-ink:${escapeHtml(poster.ink)}">
@@ -2195,6 +2323,7 @@ const api = {
   loiItemsForStop,
   transfersForStop,
   serviceOverlaps,
+  buildClockIndex,
   addHourMinutes,
   headsignLabel,
 };

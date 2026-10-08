@@ -1270,22 +1270,40 @@ const FIT_SCRIPT = `
     }
     return n;
   }
+  function dayGap(col) {
+    var last = col.getAttribute("data-last-am");
+    var first = col.getAttribute("data-first-pm");
+    if (last === "" || first === "" || last == null || first == null) return NaN;
+    return Number(first) - Number(last);
+  }
+  function dayShape(col) {
+    var amSet = col.querySelector(":scope > .am-set");
+    var pmSet = col.querySelector(":scope > .pm-set");
+    var hasAm = !!(amSet && amSet.querySelector(".tbox"));
+    var hasPm = !!(pmSet && pmSet.querySelector(".tbox"));
+    var gap = dayGap(col);
+    var normal = hasAm && hasPm && !(gap > 120);
+    return { hasAm: hasAm, hasPm: hasPm, gap: gap, normal: normal };
+  }
+  function posterUsesGrounders(sheet) {
+    var cols = sheet.querySelectorAll(".daycol");
+    var i;
+    var any = false;
+    for (i = 0; i < cols.length; i++) {
+      var shape = dayShape(cols[i]);
+      if (!shape.hasAm && !shape.hasPm) continue;
+      if (shape.normal) return false;
+      any = true;
+    }
+    return any;
+  }
   function bandWillMerge(col) {
     var cute = document.getElementById("cute-mode");
     if (cute && !cute.checked) return false;
-    var amSet = col.querySelector(":scope > .am-set");
-    var pmSet = col.querySelector(":scope > .pm-set");
-    var hasAm = plainCount(amSet) > 0;
-    var hasPm = plainCount(pmSet) > 0;
-    if (!hasAm || !hasPm) return false;
-    var blocks = col.ownerDocument.querySelectorAll(".hy-block");
-    if (blocks.length <= 1) {
-      var last = col.getAttribute("data-last-am");
-      var first = col.getAttribute("data-first-pm");
-      var gap = last !== "" && first !== "" && last != null && first != null ? Number(first) - Number(last) : NaN;
-      if (gap > 120) return false;
-    }
-    return true;
+    var shape = dayShape(col);
+    if (!shape.hasAm || !shape.hasPm) return false;
+    var sheet = col.closest(".sheet") || col.ownerDocument;
+    return !posterUsesGrounders(sheet);
   }
   function dayNatural(col) {
     var nodes = col.querySelectorAll(":scope > .boxes");
@@ -1970,14 +1988,11 @@ const FIT_SCRIPT = `
       }
     }
   }
-  function posterOneHeading(sheet) {
-    return sheet.querySelectorAll(".hy-block").length <= 1;
-  }
   function layoutBands(sheet) {
     restoreBands(sheet);
     var cute = document.getElementById("cute-mode");
     var on = !cute || cute.checked;
-    var alone = posterOneHeading(sheet);
+    var grounders = on && posterUsesGrounders(sheet);
     var cols = sheet.querySelectorAll(".daycol");
     var i;
     var cuteFlow = false;
@@ -1987,13 +2002,10 @@ const FIT_SCRIPT = `
       var pmSet = col.querySelector(":scope > .pm-set");
       var amLab = col.querySelector(':scope > .band-lab[data-band="am"]');
       var pmLab = col.querySelector(':scope > .band-lab[data-band="pm"]');
-      var hasAm = !!(amSet && amSet.querySelector(".tbox"));
-      var hasPm = !!(pmSet && pmSet.querySelector(".tbox"));
-      var last = col.getAttribute("data-last-am");
-      var first = col.getAttribute("data-first-pm");
-      var gap = last !== "" && first !== "" && last != null && first != null ? Number(first) - Number(last) : NaN;
-      var markBand = !hasAm || !hasPm || gap > 120;
-      var classic = !on || (alone && markBand);
+      var shape = dayShape(col);
+      var hasAm = shape.hasAm;
+      var hasPm = shape.hasPm;
+      var classic = !on || grounders;
       if (!classic && hasAm && hasPm && amSet && pmSet) {
         while (pmSet.firstChild) amSet.appendChild(pmSet.firstChild);
         pmSet.hidden = true;
@@ -2185,6 +2197,9 @@ function generate(part) {
     return;
   }
   try {
+    if (servedPack && byCode && S.buildClockIndex && !servedPack.clock) {
+      servedPack.clock = S.buildClockIndex(byCode);
+    }
     const merged = P.mergePosterParts(parts);
     const geo = (servedPack && servedPack.geo && servedPack.geo[selected.code]) || {};
     const street = S.streetDirectionLabel

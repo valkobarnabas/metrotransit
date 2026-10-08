@@ -359,13 +359,15 @@ qEl.disabled = true;
 showErr("Loading stop data…");
 Promise.all([
   loadGzipJson("data/served.json.gz"),
+  loadGzipJson("data/pack.json.gz").catch(() => null),
   fetch("data/locations.json")
     .then((r) => (r.ok ? r.json() : { reviewed: [], stops: {} }))
     .catch(() => ({ reviewed: [], stops: {} })),
   loadLogo(),
 ])
-  .then(([data, loc]) => {
+  .then(([data, timePack, loc]) => {
     pack = data;
+    if (timePack && timePack.byCode && S.buildClockIndex) pack.clock = S.buildClockIndex(timePack.byCode);
     stops = data.stops || [];
     locations = loc || { reviewed: [], stops: {} };
     qEl.disabled = false;
