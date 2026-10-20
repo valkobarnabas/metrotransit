@@ -1426,11 +1426,17 @@ function rowsHtml(rows, originCode, posterRouteName, radius, pack, locations, ex
     const names = (row.alsoCodes && row.alsoCodes.length ? row.alsoCodes : [row.code])
       .map((code) => stopCell(code, geo, row.starTerminus && code === row.code))
       .join(" or<br />");
-    out.push(`<tr class="data${alt}${extra}">
-      <td class="idx">${idx}</td>
-      <td class="min">${formatMinutes(row.minutes)}</td>
-      <td class="sn">${names}${onlyServedHtml(row.onlyBoards)}</td>
-      <td class="xf">${transfersHtml(xfer, geo)}</td>
+    const ch = row.change || {};
+    const tip = (text) => (text ? ` data-tip="${escapeHtml(text)}"` : "");
+    const cls = (name, extraClass) => {
+      const kind = ch[name];
+      return `${extraClass}${kind ? " " + kind : ""}`;
+    };
+    out.push(`<tr class="data${alt}${extra}${ch.row ? " " + ch.row : ""}">
+      <td class="${cls("idx", "idx")}"${tip(ch.idxTip)}>${idx}</td>
+      <td class="${cls("min", "min")}"${tip(ch.minTip)}>${formatMinutes(row.minutes)}</td>
+      <td class="${cls("sn", "sn")}"${tip(ch.snTip)}>${names}${onlyServedHtml(row.onlyBoards)}</td>
+      <td class="${cls("xf", "xf")}"${tip(ch.xfTip)}>${transfersHtml(xfer, geo)}</td>
     </tr>`);
   }
   return out.join("\n");
@@ -1960,6 +1966,24 @@ function posterCss() {
     }
     .ss-table tr.end.variant td::after { background: var(--rule); }
     .ss-table tr.end.variant-alt td { background: #fff; }
+    .ss-table td.added,
+    .ss-table tr.alt td.added,
+    .ss-table tr.variant td.added,
+    .ss-table tr.variant-alt td.added,
+    .ss-table tr.end.variant td.added,
+    .ss-table tr.data.added td { background: #d8f3dc; }
+    .ss-table td.removed,
+    .ss-table tr.alt td.removed,
+    .ss-table tr.variant td.removed,
+    .ss-table tr.variant-alt td.removed,
+    .ss-table tr.end.variant td.removed,
+    .ss-table tr.data.removed td { background: #ffd6d6; }
+    .ss-table td.moved,
+    .ss-table tr.alt td.moved,
+    .ss-table tr.variant td.moved,
+    .ss-table tr.variant-alt td.moved,
+    .ss-table tr.end.variant td.moved,
+    .ss-table tr.data.moved td { background: #fff3b0; }
     .ss-table tbody tr:last-child td::after {
       content: none;
       display: none;

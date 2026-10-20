@@ -2,11 +2,14 @@
  * Rebuild timetable and stop-list data from a GTFS zip (or an extracted folder).
  *
  * From the repo root:
- *   node metrotransit-main/build-data.js path\to\gtfs.zip
+ *   node metrotransit-main/build-data.js path\to\current.zip
+ *   node metrotransit-main/build-data.js path\to\current.zip path\to\previous.zip
+ *   node metrotransit-main/build-data.js --prev path\to\previous.zip
  *
  * Writes github/data/pack.json.gz, github-stoplists/data/served.json.gz,
  * and copies both into metrotransit-main/data/ with a fresh stop-meta.json
- * (jurisdiction and shelter flags for the map filters).
+ * (jurisdiction and shelter flags for the map filters). A previous calendar
+ * also writes prev-pack.json.gz, prev-served.json.gz, and prev-gtfs.tar.gz.
  */
 const fs = require("fs");
 const os = require("os");
@@ -17,7 +20,8 @@ const root = path.join(__dirname, "..");
 const siteData = path.join(__dirname, "data");
 
 function usage() {
-  console.error("Usage: node metrotransit-main/build-data.js <gtfs.zip | folder-with-stops.txt>");
+  console.error("Usage: node metrotransit-main/build-data.js <current.zip | folder> [previous.zip | folder]");
+  console.error("   or: node metrotransit-main/build-data.js --prev <previous.zip | folder>");
   process.exit(1);
 }
 
@@ -139,48 +143,100 @@ function runBuilder(script, gtfsDir) {
   });
 }
 
-function main() {
-  const input = process.argv[2];
-  if (!input) usage();
+function openSource(input) {
   const source = path.resolve(input);
-  if (!fs.existsSync(source)) {
-    console.error(`Not found: ${source}`);
-    usage();
-  }
+  if (!fs.existsSync(source)) throw new Error(`Not found: ${source}`);
+  const stat = fs.statSync(source);
+  if (stat.isDirectory()) return { gtfsDir: findGtfsDir(source), temp: null };
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), "mmt-gtfs-"));
+  console.log(`Extracting ${source}`);
+  extractZip(source, temp);
+  return { gtfsDir: findGtfsDir(temp), temp };
+}
 
-  let gtfsDir = null;
-  let temp = null;
-  try {
-    const stat = fs.statSync(source);
-    if (stat.isDirectory()) {
-      gtfsDir = findGtfsDir(source);
-    } else {
-      temp = fs.mkdtempSync(path.join(os.tmpdir(), "mmt-gtfs-"));
-      console.log(`Extracting ${source}`);
-      extractZip(source, temp);
-      gtfsDir = findGtfsDir(temp);
+function requireFeed(gtfsDir) {
+  if (!gtfsDir) throw new Error("stops.txt was not found in that GTFS feed.");
+  for (const name of ["routes.txt", "trips.txt", "stop_times.txt"]) {
+    if (!fs.existsSync(path.join(gtfsDir, name))) {
+      throw new Error(`Missing ${name} next to stops.txt.`);
     }
-    if (!gtfsDir) throw new Error("stops.txt was not found in that GTFS feed.");
-    for (const name of ["routes.txt", "trips.txt", "stop_times.txt"]) {
-      if (!fs.existsSync(path.join(gtfsDir, name))) {
-        throw new Error(`Missing ${name} next to stops.txt.`);
+  }
+}
+
+function buildFeed(gtfsDir) {
+  requireFeed(gtfsDir);
+  console.log(`Reading GTFS from ${gtfsDir}`);
+  runBuilder(path.join(root, "github", "build-data.js"), gtfsDir);
+  runBuilder(path.join(root, "github-stoplists", "build-data.js"), gtfsDir);
+}
+
+function copyCurrent(gtfsDir) {
+  fs.mkdirSync(siteData, { recursive: true });
+  fs.copyFileSync(path.join(root, "github", "data", "pack.json.gz"), path.join(siteData, "pack.json.gz"));
+  fs.copyFileSync(path.join(root, "github-stoplists", "data", "served.json.gz"), path.join(siteData, "served.json.gz"));
+  const meta = writeStopMeta(gtfsDir, path.join(siteData, "stop-meta.json"));
+  console.log(
+    `Updated metrotransit-main/data/pack.json.gz, served.json.gz, and stop-meta.json (${meta.stops} stops, ${meta.shelters} shelters)`
+  );
+}
+
+function copyPrevious(gtfsDir) {
+  fs.mkdirSync(siteData, { recursive: true });
+  fs.copyFileSync(path.join(root, "github", "data", "pack.json.gz"), path.join(siteData, "prev-pack.json.gz"));
+  fs.copyFileSync(path.join(root, "github-stoplists", "data", "served.json.gz"), path.join(siteData, "prev-served.json.gz"));
+  const archive = path.join(siteData, "prev-gtfs.tar.gz");
+  execFileSync("tar", ["-czf", archive, "-C", gtfsDir, "."], { stdio: "inherit" });
+  console.log(`Updated metrotransit-main/data/prev-pack.json.gz, prev-served.json.gz, and prev-gtfs.tar.gz`);
+}
+
+function parseArgs(argv) {
+  const args = argv.slice(2);
+  if (!args.length) return null;
+  if (args[0] === "--prev") return { current: null, previous: args[1] || null };
+  return { current: args[0] || null, previous: args[1] || null };
+}
+
+function main() {
+  const parsed = parseArgs(process.argv);
+  if (!parsed || (!parsed.current && !parsed.previous)) usage();
+  const temps = [];
+  try {
+    if (parsed.previous) {
+      const opened = openSource(parsed.previous);
+      if (opened.temp) temps.push(opened.temp);
+      const hold = parsed.current
+        ? null
+        : {
+            pack: path.join(root, "github", "data", "pack.json.gz"),
+            served: path.join(root, "github-stoplists", "data", "served.json.gz"),
+          };
+      const backup = [];
+      if (hold) {
+        for (const file of [hold.pack, hold.served]) {
+          if (!fs.existsSync(file)) continue;
+          const dest = file + ".keep";
+          fs.copyFileSync(file, dest);
+          backup.push([dest, file]);
+        }
+      }
+      try {
+        buildFeed(opened.gtfsDir);
+        copyPrevious(opened.gtfsDir);
+      } finally {
+        for (const [from, to] of backup) {
+          fs.copyFileSync(from, to);
+          fs.unlinkSync(from);
+        }
       }
     }
-
-    console.log(`Reading GTFS from ${gtfsDir}`);
-    runBuilder(path.join(root, "github", "build-data.js"), gtfsDir);
-    runBuilder(path.join(root, "github-stoplists", "build-data.js"), gtfsDir);
-
-    fs.mkdirSync(siteData, { recursive: true });
-    fs.copyFileSync(path.join(root, "github", "data", "pack.json.gz"), path.join(siteData, "pack.json.gz"));
-    fs.copyFileSync(path.join(root, "github-stoplists", "data", "served.json.gz"), path.join(siteData, "served.json.gz"));
-    const metaPath = path.join(siteData, "stop-meta.json");
-    const meta = writeStopMeta(gtfsDir, metaPath);
-    console.log(
-      `Updated metrotransit-main/data/pack.json.gz, served.json.gz, and stop-meta.json (${meta.stops} stops, ${meta.shelters} shelters)`
-    );
+    if (parsed.current) {
+      const opened = openSource(parsed.current);
+      if (opened.temp) temps.push(opened.temp);
+      buildFeed(opened.gtfsDir);
+      copyCurrent(opened.gtfsDir);
+    }
   } finally {
-    if (temp) fs.rmSync(temp, { recursive: true, force: true });
+    for (const temp of temps) fs.rmSync(temp, { recursive: true, force: true });
   }
 }
 

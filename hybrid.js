@@ -22,6 +22,10 @@ let selected = null;
 let lastHtml = "";
 let lastPart = "both";
 let lastFit = false;
+const changeMode = !!(document.body && document.body.classList.contains("changes"));
+let prevByCode = null;
+let prevServed = null;
+let prevStops = [];
 function showErr(msg) {
   errEl.hidden = !msg;
   errEl.textContent = msg || "";
@@ -42,14 +46,21 @@ function norm(s) {
     .trim();
 }
 
+function allStops() {
+  if (!changeMode || !prevStops.length) return stops;
+  const seen = new Set(stops.map((s) => s.code));
+  return stops.concat(prevStops.filter((s) => !seen.has(s.code)).map((s) => ({ ...s, gone: true })));
+}
+
 function searchStops(query) {
   const raw = query.trim();
   if (!raw) return [];
-  const exact = stops.filter((s) => s.code === raw || s.code.replace(/^0+/, "") === raw.replace(/^0+/, ""));
+  const pool = allStops();
+  const exact = pool.filter((s) => s.code === raw || s.code.replace(/^0+/, "") === raw.replace(/^0+/, ""));
   if (/^\d{3,5}$/.test(raw) && exact.length) return exact.slice(0, 8);
   const nq = norm(raw);
   const scored = [];
-  for (const s of stops) {
+  for (const s of pool) {
     const name = norm(s.name);
     const code = s.code.toLowerCase();
     let score = 0;
@@ -80,7 +91,7 @@ function renderResults(list) {
   resultsEl.innerHTML = list
     .map((s) => {
       const dir = s.dir ? `<span class="dir">${escapeText(s.dir)}</span>` : "";
-      return `<button type="button" class="result" data-code="${escapeText(s.code)}">
+      return `<button type="button" class="result${s.gone ? " gone" : ""}" data-code="${escapeText(s.code)}">
         <div><span class="name">${escapeText(s.name)}</span><span class="code">#${escapeText(s.code)}</span></div>
         <div class="lines">${routePills(s.routes)}${dir}</div>
       </button>`;
@@ -90,7 +101,8 @@ function renderResults(list) {
 
 function visibleRoutes() {
   if (!selected) return [];
-  return noSchoolEl.checked ? selected.routes.filter((r) => !r.s) : selected.routes;
+  const list = routesForStop(selected);
+  return noSchoolEl.checked ? list.filter((r) => !r.s) : list;
 }
 
 function routeInputs() {
@@ -128,6 +140,19 @@ function setGenerateEnabled(on) {
   if (goStopsEl) goStopsEl.disabled = off;
 }
 
+function routesForStop(stop) {
+  const map = new Map();
+  for (const r of stop.routes || []) map.set(String(r.n).toLowerCase(), r);
+  if (changeMode && prevStops.length) {
+    const prev = prevStops.find((s) => s.code === stop.code);
+    for (const r of (prev && prev.routes) || []) {
+      const k = String(r.n).toLowerCase();
+      if (!map.has(k)) map.set(k, { ...r, gone: true });
+    }
+  }
+  return [...map.values()];
+}
+
 function showPicked(stop) {
   selected = stop;
   pickedEl.hidden = false;
@@ -135,10 +160,11 @@ function showPicked(stop) {
   qEl.value = `${stop.name}  #${stop.code}`;
   pickedName.textContent = stop.name;
   const street = [stop.dir, stop.street].filter(Boolean).join(" ");
-  pickedMeta.textContent = `Stop #${stop.code}${street ? " · " + street : ""}`;
+  pickedMeta.textContent = `Stop #${stop.code}${street ? " · " + street : ""}${stop.gone ? " · not in current calendar" : ""}`;
   outEl.hidden = true;
-  const first = stop.routes.findIndex((r) => !(noSchoolEl && noSchoolEl.checked && r.s));
-  routesEl.innerHTML = stop.routes
+  const routeList = routesForStop(stop);
+  const first = routeList.findIndex((r) => !(noSchoolEl && noSchoolEl.checked && r.s));
+  routesEl.innerHTML = routeList
     .map(
       (r, i) =>
         `<label><input type="radio" name="hybrid-route" data-route="${escapeText(r.n)}"${i === first ? " checked" : ""} /> <span class="pill" style="background:${r.c};color:${r.t}">${escapeText(r.n)}</span>${r.s ? " extra" : ""}</label>`
@@ -245,7 +271,9 @@ function boxesHtml(deps, kind) {
     const inner = boxText(dep, kind);
     const clock = inner.replace(/<span class="roll-suffix">am<\/span>/, "");
     const suffix = kind === "roll" ? ' data-suffix="am"' : "";
-    return `<span class="tbox ${kind}"><span class="tink" data-clock="${clock}"${suffix}><span class="tink-src">${inner}</span></span></span>`;
+    const ch = dep.change ? ` ${escapeText(dep.change)}` : "";
+    const tip = dep.tip ? ` data-tip="${escapeText(dep.tip)}"` : "";
+    return `<span class="tbox ${kind}${ch}"${tip}><span class="tink" data-clock="${clock}"${suffix}><span class="tink-src">${inner}</span></span></span>`;
   }).join("");
 }
 
@@ -255,28 +283,22 @@ function dayColumnHtml(col) {
   const pm = deps.filter((d) => bandOf(d) === "pm");
   const roll = deps.filter((d) => bandOf(d) === "roll");
   const amInner = boxesHtml(am, "am");
-  const pmBoxes = boxesHtml(pm, "pm");
-  const rollBoxes = boxesHtml(roll, "roll");
-  const rollInner = rollBoxes ? `<div class="boxes roll-row">${rollBoxes}</div>` : "";
-  const pmInner = pmBoxes + rollInner;
+  const pmInner = boxesHtml(pm, "pm") + boxesHtml(roll, "roll");
   const wknd = isWeekendColumn(col) ? " wknd" : "";
   const mf = col.key === "weekday" ? " mf" : "";
-  const second = amInner ? "PM" : pm.length ? "PM" : "AM";
   const lastAm = am.length ? Number(am[am.length - 1].hh) * 60 + (Number(am[am.length - 1].mm) || 0) : "";
   const firstPm = pm.length ? Number(pm[0].hh) * 60 + (Number(pm[0].mm) || 0) : "";
   return `<div class="daycol" data-last-am="${lastAm}" data-first-pm="${firstPm}">
     <div class="dayhead${wknd}${mf}">${escapeText(columnDayLabel({ ...col, deps }))}</div>
-    ${amInner ? `<span class="band-lab" data-band="am">AM</span><div class="boxes am-set">${amInner}</div>` : ""}
-    ${pmInner ? `<span class="band-lab" data-band="pm">${second}</span><div class="boxes pm-set">${pmInner}</div>` : ""}
+    ${amInner ? `<div class="boxes am-set">${amInner}</div>` : ""}
+    ${pmInner ? `<div class="boxes pm-set">${pmInner}</div>` : ""}
   </div>`;
 }
 
 function extraHeadsign(h) {
   const note = h && h.destNote;
   if (!note || note.type !== "headsign") return "";
-  const sign = String(note.headsign || "").trim();
-  if (sign.toUpperCase() !== "JUNCTION VIA HIGH CROSSING") return "";
-  return sign;
+  return String(note.headsign || "").trim();
 }
 
 function hideTerminusNote(h) {
@@ -469,7 +491,9 @@ function timeBlockHtml(heading) {
   const note = headingNote(heading);
   const cols = Math.max(1, columns.length);
   const family = routeFamily(heading.routeShortName);
-  return `<section class="hy-block" data-family="${escapeText(family)}" style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
+  const ch = heading.change ? ` ${escapeText(heading.change)}` : "";
+  const tip = heading.tip ? ` data-tip="${escapeText(heading.tip)}"` : "";
+  return `<section class="hy-block${ch}" data-family="${escapeText(family)}"${tip} style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
     ${routeLine(heading)}
     <div class="days" style="grid-template-columns:repeat(${cols}, minmax(0, 1fr))">
       ${columns.map(dayColumnHtml).join("")}
@@ -550,6 +574,7 @@ function renderHybridHtml(opts) {
   const predUrl = opts.predUrl || "";
   const part = opts.part === "timetable" || opts.part === "stops" ? opts.part : "both";
   const timeKey = `<div class="time-key"><span>Key:</span><span class="key-sample">AM</span><span class="key-sample pm">PM</span></div>`;
+  const diff = !!opts.diff;
   const times = part === "stops" ? "" : `${timesHtml(headings)}\n${timeKey}`;
   const manyLists = lists.length > 1;
   const listHtml = lists
@@ -557,7 +582,7 @@ function renderHybridHtml(opts) {
       const caption = manyLists
         ? `<div class="list-kicker">${escapeText(listCaption(row.heading, row.poster))}</div>`
         : "";
-      return `<div class="list-pair">${caption}${hideSignedTo(S.listSectionHtml(row.poster, opts.servedPack))}</div>`;
+      return `<div class="list-pair${row.poster && row.poster.change ? " " + escapeText(row.poster.change) : ""}">${caption}${hideSignedTo(S.listSectionHtml(row.poster, opts.servedPack))}</div>`;
     })
     .join("\n");
   const listHtmlOut = part === "timetable" ? "" : listHtml;
@@ -813,18 +838,18 @@ function renderHybridHtml(opts) {
     .hy-dest svg { display: block; }
     .days { display: grid; column-gap: 0.16in; align-items: stretch; justify-content: start; }
     .sheet.day-line .days { grid-template-columns: minmax(0, 1fr); row-gap: calc(8px * var(--fit)); }
-    .daycol.compact { grid-template-columns: auto auto; }
+    .daycol.compact { grid-template-columns: minmax(0, 1fr); }
     .daycol.compact .boxes { width: max-content; max-width: 100%; }
     .daycol {
       position: relative;
       display: grid;
-      grid-template-columns: auto minmax(0, 1fr);
-      column-gap: 0.28em;
+      grid-template-columns: minmax(0, 1fr);
+      column-gap: 0;
       align-items: start;
       align-content: start;
     }
-    .daycol > .band-lab { grid-column: 1; }
-    .daycol > .boxes { grid-column: 2; }
+    .daycol > .band-lab { display: none; }
+    .daycol > .boxes { grid-column: 1 / -1; }
     .daycol > .boxes.solo { grid-column: 1 / -1; }
     .daycol > .band-lab[hidden],
     .daycol > .boxes[hidden] { display: none; }
@@ -914,24 +939,41 @@ function renderHybridHtml(opts) {
       display: block;
     }
     .tbox.roll {
-  width: auto;
-  min-width: calc(var(--box) + 1px);
-  max-width: none;
-  flex: 0 0 auto;
+  width: calc(100% + 1px);
+  min-width: 0;
   margin: 0 -1px -1px 0;
-  padding-left: 0.22em;
-  padding-right: 0.22em;
+  padding: 0;
   background: #fff;
   font-weight: 500;
 }
-    body:has(#cute-mode:checked) .roll-suffix { display: none; }
-    body:has(#cute-mode:checked) .tbox.roll {
-      padding-left: 0;
-      padding-right: 0;
-    }
+    .roll-suffix { display: none; }
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
+    .tbox.added, tr.data.added td, .hy-block.added .hy-line { background: #d8f3dc; }
+    .tbox.removed, tr.data.removed td, .hy-block.removed .hy-line { background: #ffd6d6; }
+    .tbox.moved, tr.data.moved td, td.moved { background: #fff3b0; }
+    .tbox.pm.added { background: #b7dfc0; }
+    .tbox.pm.removed { background: #f0b8b8; }
+    .tbox.pm.moved { background: #f0dc7a; }
+    td.added { background: #d8f3dc; }
+    td.removed { background: #ffd6d6; }
+    #change-tip {
+      position: fixed;
+      z-index: 20;
+      max-width: 22rem;
+      padding: 8px 10px;
+      border: 1px solid #111;
+      background: #fff;
+      color: #111;
+      font-size: 12px;
+      line-height: 1.35;
+      white-space: pre-line;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    }
     .tt-note { margin: 4px 0 0; font-size: calc(10.5px * var(--fit)); line-height: 1.35; color: var(--muted); }
     .ss-table .tt-note { margin: 0; line-height: 1; }
+    .list-pair.added .list-kicker, .list-pair.added .next-stops { color: #1b5e20; }
+    .list-pair.removed .list-kicker, .list-pair.removed .next-stops { color: #8e0400; }
     .list-kicker {
       margin: 0.08in 0 2px;
       font-size: calc(12px * var(--fit));
@@ -998,6 +1040,24 @@ function renderHybridHtml(opts) {
     .ss-table tr.variant td::after { background: var(--ink); }
     .ss-table tr.variant td.sn { font-style: italic; }
     .ss-table tr.variant-alt td { background: #fff; }
+    .ss-table td.added,
+    .ss-table tr.alt td.added,
+    .ss-table tr.variant td.added,
+    .ss-table tr.variant-alt td.added,
+    .ss-table tr.end.variant td.added,
+    .ss-table tr.data.added td { background: #d8f3dc; }
+    .ss-table td.removed,
+    .ss-table tr.alt td.removed,
+    .ss-table tr.variant td.removed,
+    .ss-table tr.variant-alt td.removed,
+    .ss-table tr.end.variant td.removed,
+    .ss-table tr.data.removed td { background: #ffd6d6; }
+    .ss-table td.moved,
+    .ss-table tr.alt td.moved,
+    .ss-table tr.variant td.moved,
+    .ss-table tr.variant-alt td.moved,
+    .ss-table tr.end.variant td.moved,
+    .ss-table tr.data.moved td { background: #fff3b0; }
     .ss-table tr.end.variant td::after { background: var(--rule); }
     .ss-table tbody tr:last-child td::after { content: none; }
     .ss-table th:last-child, .ss-table td:last-child { border-right: 0; }
@@ -1149,11 +1209,11 @@ function renderHybridHtml(opts) {
     }
   </style>
 </head>
-<body data-pdf-name="${escapeText(slug)}">
+<body data-pdf-name="${escapeText(slug)}"${diff ? ' class="diff"' : ""}>
   <div class="chrome">
-    <button type="button" id="print-poster">Print/Save as PDF</button>
+    ${diff ? "" : `<button type="button" id="print-poster">Print/Save as PDF</button>`}
     <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
-    <label id="cute-label"><input type="checkbox" id="cute-mode" checked /> Cute mode</label>
+    <label id="cute-label" hidden><input type="checkbox" id="cute-mode" checked /> Cute mode</label>
     <label id="day-line-label"><input type="checkbox" id="day-line" checked /> Day per line</label>
     <label id="route-line-label"><input type="checkbox" id="route-line" /> One route per line</label>
     <span class="hint" id="page-count">Measuring size…</span>
@@ -1285,21 +1345,10 @@ const FIT_SCRIPT = `
     var normal = hasAm && hasPm && !(gap > 120);
     return { hasAm: hasAm, hasPm: hasPm, gap: gap, normal: normal };
   }
-  function posterUsesGrounders(sheet) {
-    var cols = sheet.querySelectorAll(".daycol");
-    var i;
-    var any = false;
-    for (i = 0; i < cols.length; i++) {
-      var shape = dayShape(cols[i]);
-      if (!shape.hasAm && !shape.hasPm) continue;
-      if (shape.normal) return false;
-      any = true;
-    }
-    return any;
+  function posterUsesGrounders() {
+    return false;
   }
   function bandWillMerge(col) {
-    var cute = document.getElementById("cute-mode");
-    if (cute && !cute.checked) return false;
     var shape = dayShape(col);
     if (!shape.hasAm || !shape.hasPm) return false;
     var sheet = col.closest(".sheet") || col.ownerDocument;
@@ -1510,11 +1559,6 @@ const FIT_SCRIPT = `
     }
     var rolls = sheet.querySelectorAll(".tbox.roll");
     for (i = 0; i < rolls.length; i++) rolls[i].style.width = "";
-    for (i = 0; i < rolls.length; i++) {
-      var box = rolls[i];
-      var w = Math.ceil(box.getBoundingClientRect().width - 0.01);
-      if (w > 0) box.style.width = w + "px";
-    }
   }
   var PLANE_D = "M7.16 2.25L9.71 10.8 4.7 10.8 3.18 9.12 1.2 9.12 2.46 12.05 1.2 14.93 3.18 14.93 4.68 13.29 9.69 13.29 7.16 21.75 9.14 21.9 14.6 13.29 21.53 13.29C21.88 13.29 22.18 13.17 22.43 12.95 22.68 12.72 22.8 12.42 22.8 12.05 22.8 11.88 22.77 11.72 22.7 11.57 22.64 11.42 22.55 11.29 22.43 11.17 22.31 11.05 22.17 10.96 22.02 10.9 21.86 10.83 21.7 10.8 21.53 10.8L14.64 10.8 9.14 2.1Z";
   function addPlane(doc, svg, x, y, size, fill) {
@@ -1720,9 +1764,7 @@ const FIT_SCRIPT = `
       if (clock) ink.setAttribute("data-clock", clock);
     }
     if (!clock) return;
-    var suffix = ink.getAttribute("data-suffix") || "";
-    var cute = document.getElementById("cute-mode");
-    var text = suffix && cute && cute.checked ? clock : clock + suffix;
+    var text = clock;
     var cs = getComputedStyle(box);
     var fontSize = parseFloat(cs.fontSize) || 11.5;
     var weight = cs.fontWeight || "500";
@@ -1990,8 +2032,7 @@ const FIT_SCRIPT = `
   }
   function layoutBands(sheet) {
     restoreBands(sheet);
-    var cute = document.getElementById("cute-mode");
-    var on = !cute || cute.checked;
+    var on = true;
     var grounders = on && posterUsesGrounders(sheet);
     var cols = sheet.querySelectorAll(".daycol");
     var i;
@@ -2027,7 +2068,7 @@ const FIT_SCRIPT = `
       }
     }
     var key = sheet.querySelector(".time-key");
-    if (key) key.hidden = !cuteFlow;
+    if (key) key.hidden = false;
   }
   function relayout(sheet) {
     clearCompact(sheet);
@@ -2087,6 +2128,37 @@ const FIT_SCRIPT = `
       }
     } catch (err) {}
   }
+  function bindChangeTips(sheet) {
+    var doc = sheet.ownerDocument;
+    var tip = doc.getElementById("change-tip");
+    if (!tip) {
+      tip = doc.createElement("div");
+      tip.id = "change-tip";
+      tip.hidden = true;
+      doc.body.appendChild(tip);
+    }
+    function hide() { tip.hidden = true; }
+    function show(e) {
+      var el = e.target.closest("[data-tip]");
+      if (!el) { hide(); return; }
+      var text = el.getAttribute("data-tip");
+      if (!text) { hide(); return; }
+      tip.textContent = text;
+      tip.hidden = false;
+      var x = e.clientX + 14;
+      var y = e.clientY + 18;
+      var w = tip.offsetWidth || 220;
+      var h = tip.offsetHeight || 60;
+      if (x + w > window.innerWidth - 8) x = Math.max(8, e.clientX - w - 12);
+      if (y + h > window.innerHeight - 8) y = Math.max(8, e.clientY - h - 12);
+      tip.style.left = x + "px";
+      tip.style.top = y + "px";
+    }
+    if (sheet.getAttribute("data-tips") === "1") return;
+    sheet.setAttribute("data-tips", "1");
+    sheet.addEventListener("mousemove", show);
+    sheet.addEventListener("mouseleave", hide);
+  }
   function apply() {
     var sheet = sheetEl();
     var box = document.getElementById("fit-page");
@@ -2111,6 +2183,7 @@ const FIT_SCRIPT = `
     }
     relayout(sheet);
     centerTimes(sheet);
+    bindChangeTips(sheet);
     report(h > LIMIT, box && box.checked);
     note();
   }
@@ -2136,8 +2209,6 @@ const FIT_SCRIPT = `
   if (btn) btn.addEventListener("click", printPoster);
   var fit = document.getElementById("fit-page");
   if (fit) fit.addEventListener("change", apply);
-  var cute = document.getElementById("cute-mode");
-  if (cute) cute.addEventListener("change", apply);
   var dayLine = document.getElementById("day-line");
   if (dayLine) dayLine.addEventListener("change", apply);
   var routeLine = document.getElementById("route-line");
@@ -2148,17 +2219,214 @@ const FIT_SCRIPT = `
 })();
 `;
 
-function listsFor(names, stopCode) {
+function formatFeedRange(feed) {
+  const a = feed && feed.feed_start_date;
+  const b = feed && feed.feed_end_date;
+  if (!a || !b || String(a).length < 8) return "";
+  const md = (s) => `${Number(String(s).slice(4, 6))}/${Number(String(s).slice(6, 8))}/${String(s).slice(2, 4)}`;
+  return `${md(a)}-${md(b)}`;
+}
+
+function formatClockDep(dep) {
+  if (!dep) return "NONE";
+  const h = clockHour(Number(dep.hh));
+  const hr = h % 12 || 12;
+  const mm = String(Number(dep.mm) || 0).padStart(2, "0");
+  const ap = h < 12 ? "AM" : "PM";
+  return `${hr}:${mm}${ap}`;
+}
+
+function serviceTip(prevFeed, currFeed, dest, prevDep, currDep) {
+  const toward = dest ? ` towards ${dest}` : "";
+  const prevR = formatFeedRange(prevFeed);
+  const currR = formatFeedRange(currFeed);
+  return `Previous service${prevR ? " (valid " + prevR + ")" : ""}${toward}: ${formatClockDep(prevDep)}\nCurrent service${currR ? " (valid " + currR + ")" : ""}${toward}: ${formatClockDep(currDep)}`;
+}
+
+function headingMatchKey(h) {
+  const route = String(h.routeShortName || "").toLowerCase();
+  const code = String((h.board && h.board.code) || "").toUpperCase();
+  const dir = String(h.routeDirection || "").toLowerCase();
+  const dest = normDest(h.board && h.board.dest);
+  return `${route}|${code}|${dir}|${dest}`;
+}
+
+function headingLooseKey(h) {
+  const route = String(h.routeShortName || "").toLowerCase();
+  const code = String((h.board && h.board.code) || "").toUpperCase();
+  const dir = String(h.routeDirection || "").toLowerCase();
+  return `${route}|${code}|${dir}`;
+}
+
+function cloneHeading(h) {
+  return {
+    ...h,
+    columns: (h.columns || []).map((col) => ({
+      ...col,
+      deps: (col.deps || []).map((d) => ({ ...d })),
+    })),
+  };
+}
+
+function pairBy(listA, listB, keyFn) {
+  const unused = new Set((listB || []).map((_, i) => i));
+  const usedA = new Set();
+  const pairs = [];
+  for (let i = 0; i < (listA || []).length; i++) {
+    const k = keyFn(listA[i]);
+    let hit = -1;
+    for (const j of unused) {
+      if (keyFn(listB[j]) === k) {
+        hit = j;
+        break;
+      }
+    }
+    if (hit < 0) continue;
+    unused.delete(hit);
+    usedA.add(i);
+    pairs.push([listA[i], listB[hit]]);
+  }
+  return {
+    pairs,
+    leftoverA: (listA || []).filter((_, i) => !usedA.has(i)),
+    leftoverB: (listB || []).filter((_, j) => unused.has(j)),
+  };
+}
+
+function pairDeps(currDeps, prevDeps) {
+  const curr = (currDeps || []).map((d) => ({ ...d, _m: minuteOf(d) }));
+  const prev = (prevDeps || []).map((d) => ({ ...d, _m: minuteOf(d) }));
+  const usedP = new Set();
+  const usedC = new Set();
+  const out = [];
+  function take(ci, pi, change) {
+    usedC.add(ci);
+    usedP.add(pi);
+    out.push({ curr: curr[ci], prev: prev[pi], change, minute: curr[ci]._m });
+  }
+  for (let i = 0; i < curr.length; i++) {
+    for (let j = 0; j < prev.length; j++) {
+      if (usedP.has(j)) continue;
+      if (curr[i]._m === prev[j]._m) {
+        take(i, j, "");
+        break;
+      }
+    }
+  }
+  for (let i = 0; i < curr.length; i++) {
+    if (usedC.has(i)) continue;
+    let best = -1;
+    let bestD = 11;
+    for (let j = 0; j < prev.length; j++) {
+      if (usedP.has(j)) continue;
+      const d = Math.abs(curr[i]._m - prev[j]._m);
+      if (d <= 10 && d < bestD) {
+        best = j;
+        bestD = d;
+      }
+    }
+    if (best >= 0) take(i, best, "moved");
+  }
+  for (let i = 0; i < curr.length; i++) {
+    if (usedC.has(i)) continue;
+    out.push({ curr: curr[i], prev: null, change: "added", minute: curr[i]._m });
+  }
+  for (let j = 0; j < prev.length; j++) {
+    if (usedP.has(j)) continue;
+    out.push({ curr: null, prev: prev[j], change: "removed", minute: prev[j]._m });
+  }
+  out.sort((a, b) => a.minute - b.minute);
+  return out;
+}
+
+function paintHeadingChange(heading, change, prevFeed, currFeed) {
+  const dest = String((heading.board && heading.board.dest) || "").trim();
+  const cloned = cloneHeading(heading);
+  cloned.change = change;
+  cloned.tip = serviceTip(
+    prevFeed,
+    currFeed,
+    dest,
+    change === "added" ? null : cloned.columns[0] && cloned.columns[0].deps[0],
+    change === "removed" ? null : cloned.columns[0] && cloned.columns[0].deps[0]
+  );
+  for (const col of cloned.columns || []) {
+    for (const dep of col.deps || []) {
+      dep.change = change;
+      dep.tip = serviceTip(prevFeed, currFeed, dest, change === "added" ? null : dep, change === "removed" ? null : dep);
+    }
+  }
+  return cloned;
+}
+
+function diffHeadings(currHeadings, prevHeadings, currFeed, prevFeed) {
+  const curr = (currHeadings || []).map(cloneHeading);
+  const prev = (prevHeadings || []).map(cloneHeading);
+  let grouped = pairBy(curr, prev, headingMatchKey);
+  if (grouped.leftoverA.length && grouped.leftoverB.length) {
+    const loose = pairBy(grouped.leftoverA, grouped.leftoverB, headingLooseKey);
+    grouped = {
+      pairs: grouped.pairs.concat(loose.pairs),
+      leftoverA: loose.leftoverA,
+      leftoverB: loose.leftoverB,
+    };
+  }
+  const out = [];
+  for (const [c, p] of grouped.pairs) {
+    const dest = String((c.board && c.board.dest) || (p.board && p.board.dest) || "").trim();
+    const colPairs = pairBy(c.columns || [], p.columns || [], (col) => String(col.key || col.label || ""));
+    const columns = [];
+    for (const [cc, pc] of colPairs.pairs) {
+      const deps = pairDeps(cc.deps, pc.deps).map((row) => {
+        const src = row.curr || row.prev;
+        const dep = { ...src };
+        delete dep._m;
+        dep.change = row.change;
+        dep.tip = serviceTip(prevFeed, currFeed, dest, row.prev, row.curr);
+        return dep;
+      });
+      columns.push({ ...cc, deps });
+    }
+    for (const cc of colPairs.leftoverA) {
+      columns.push({
+        ...cc,
+        deps: (cc.deps || []).map((d) => ({
+          ...d,
+          change: "added",
+          tip: serviceTip(prevFeed, currFeed, dest, null, d),
+        })),
+      });
+    }
+    for (const pc of colPairs.leftoverB) {
+      columns.push({
+        ...pc,
+        deps: (pc.deps || []).map((d) => ({
+          ...d,
+          change: "removed",
+          tip: serviceTip(prevFeed, currFeed, dest, d, null),
+        })),
+      });
+    }
+    out.push({ ...c, columns });
+  }
+  for (const c of grouped.leftoverA) out.push(paintHeadingChange(c, "added", prevFeed, currFeed));
+  for (const p of grouped.leftoverB) out.push(paintHeadingChange(p, "removed", prevFeed, currFeed));
+  return out;
+}
+
+function listsFor(names, stopCode, pack) {
   const posters = [];
+  const src = pack || servedPack;
+  if (!src) return posters;
   let loc = locations;
   try {
-    loc = S.migrateLocations(locations || {}, servedPack);
+    loc = S.migrateLocations(locations || {}, src);
   } catch {
     loc = locations || {};
   }
   for (const name of names) {
     try {
-      const found = S.postersForStop(servedPack, stopCode, {
+      const found = S.postersForStop(src, stopCode, {
         routes: [name],
         excludeSchool: !!(noSchoolEl && noSchoolEl.checked),
         radius: S.DEFAULT_RADIUS,
@@ -2170,6 +2438,142 @@ function listsFor(names, stopCode) {
     }
   }
   return posters;
+}
+
+function posterMatchKey(p) {
+  return `${String(p.routeName || "").toLowerCase()}|${String(p.heading || "").toLowerCase()}|${normDest(posterDest(p))}|${String(p.titleCode || "")}`;
+}
+
+function stopRowList(poster) {
+  return (poster.rows || []).filter((row) => row.type === "stop");
+}
+
+function xferLabel(xfer) {
+  const names = [
+    ...((xfer && xfer.same) || []).map((r) => r.n),
+    ...((xfer && xfer.others) || []).map((x) => x.r.n),
+  ];
+  return names.sort(S.compareBoardCodes || ((a, b) => String(a).localeCompare(String(b)))).join(", ") || "NONE";
+}
+
+function transfersAt(pack, stopCode, routeName, boards) {
+  if (!pack || !S.transfersForStop) return { same: [], others: [] };
+  return S.transfersForStop(stopCode, routeName, S.DEFAULT_RADIUS, pack, { excludeSchool: !!(noSchoolEl && noSchoolEl.checked) }, boards);
+}
+
+function listTip(prevFeed, currFeed, prevText, currText) {
+  const prevR = formatFeedRange(prevFeed);
+  const currR = formatFeedRange(currFeed);
+  return `Previous service${prevR ? " (valid " + prevR + ")" : ""}: ${prevText}\nCurrent service${currR ? " (valid " + currR + ")" : ""}: ${currText}`;
+}
+
+function roundMin(n) {
+  return Math.round(Number(n) || 0);
+}
+
+function annotateStopRow(curr, prev, currI, prevI, currPoster, prevPoster, currPack, prevPack, currFeed, prevFeed) {
+  const row = { ...(curr || prev) };
+  const ch = {};
+  if (!prev) {
+    ch.row = "added";
+    ch.idx = "added";
+    ch.min = "added";
+    ch.sn = "added";
+    ch.xf = "added";
+    ch.idxTip = listTip(prevFeed, currFeed, "NONE", String(currI));
+    ch.minTip = listTip(prevFeed, currFeed, "NONE", `${roundMin(row.minutes)} min`);
+    ch.snTip = listTip(prevFeed, currFeed, "NONE", `${row.code}`);
+    ch.xfTip = listTip(prevFeed, currFeed, "NONE", xferLabel(transfersAt(currPack, row.code, currPoster.routeName, currPoster.boards)));
+  } else if (!curr) {
+    ch.row = "removed";
+    ch.idx = "removed";
+    ch.min = "removed";
+    ch.sn = "removed";
+    ch.xf = "removed";
+    ch.idxTip = listTip(prevFeed, currFeed, String(prevI), "NONE");
+    ch.minTip = listTip(prevFeed, currFeed, `${roundMin(row.minutes)} min`, "NONE");
+    ch.snTip = listTip(prevFeed, currFeed, `${row.code}`, "NONE");
+    ch.xfTip = listTip(prevFeed, currFeed, xferLabel(transfersAt(prevPack, row.code, prevPoster.routeName, prevPoster.boards)), "NONE");
+  } else {
+    if (currI !== prevI) {
+      ch.idx = "moved";
+      ch.idxTip = listTip(prevFeed, currFeed, `${prevI} stops from here`, `${currI} stops from here`);
+    }
+    if (roundMin(curr.minutes) !== roundMin(prev.minutes)) {
+      ch.min = "moved";
+      ch.minTip = listTip(prevFeed, currFeed, `${roundMin(prev.minutes)} min`, `${roundMin(curr.minutes)} min`);
+    }
+    const currX = xferLabel(transfersAt(currPack, curr.code, currPoster.routeName, currPoster.boards));
+    const prevX = xferLabel(transfersAt(prevPack, prev.code, prevPoster.routeName, prevPoster.boards));
+    if (currX !== prevX) {
+      const currSet = new Set(currX === "NONE" ? [] : currX.split(", "));
+      const prevSet = new Set(prevX === "NONE" ? [] : prevX.split(", "));
+      const onlyCurr = [...currSet].some((n) => !prevSet.has(n));
+      const onlyPrev = [...prevSet].some((n) => !currSet.has(n));
+      ch.xf = onlyCurr && onlyPrev ? "moved" : onlyCurr ? "added" : "removed";
+      ch.xfTip = listTip(prevFeed, currFeed, prevX, currX);
+    }
+  }
+  row.change = ch;
+  return row;
+}
+
+function diffOnePoster(currPoster, prevPoster, currPack, prevPack, currFeed, prevFeed) {
+  const base = currPoster || prevPoster;
+  const currStops = currPoster ? stopRowList(currPoster) : [];
+  const prevStopsRows = prevPoster ? stopRowList(prevPoster) : [];
+  const prevBy = new Map(prevStopsRows.map((row, i) => [String(row.code), { row, i }]));
+  const currBy = new Set(currStops.map((row) => String(row.code)));
+  const usedPrev = new Set();
+  const outRows = [];
+  const sourceRows = (currPoster && currPoster.rows) || (prevPoster && prevPoster.rows) || [];
+  for (const row of sourceRows) {
+    if (row.type !== "stop") {
+      outRows.push({ ...row });
+      continue;
+    }
+    const prevHit = prevBy.get(String(row.code));
+    if (prevHit) usedPrev.add(String(row.code));
+    const currI = currStops.findIndex((r) => r.code === row.code) + 1;
+    const prevI = prevHit ? prevHit.i + 1 : 0;
+    outRows.push(
+      annotateStopRow(row, prevHit && prevHit.row, currI, prevI, currPoster || base, prevPoster || base, currPack, prevPack, currFeed, prevFeed)
+    );
+  }
+  if (currPoster) {
+    const inserts = [];
+    for (const prev of prevStopsRows) {
+      if (currBy.has(String(prev.code))) continue;
+      const prevI = prevStopsRows.findIndex((r) => r.code === prev.code) + 1;
+      inserts.push({ after: prevI - 1, row: annotateStopRow(null, prev, 0, prevI, currPoster, prevPoster, currPack, prevPack, currFeed, prevFeed) });
+    }
+    for (const item of inserts.reverse()) {
+      let at = 0;
+      let seen = 0;
+      for (let i = 0; i < outRows.length; i++) {
+        if (outRows[i].type !== "stop") continue;
+        if (seen === item.after) {
+          at = i + 1;
+          break;
+        }
+        seen += 1;
+        at = i + 1;
+      }
+      outRows.splice(at, 0, item.row);
+    }
+  }
+  const copy = { ...base, rows: outRows };
+  if (!currPoster) copy.change = "removed";
+  else if (!prevPoster) copy.change = "added";
+  return copy;
+}
+
+function diffPosters(currPosters, prevPosters, currPack, prevPack, currFeed, prevFeed) {
+  const grouped = pairBy(currPosters || [], prevPosters || [], posterMatchKey);
+  const out = grouped.pairs.map(([c, p]) => diffOnePoster(c, p, currPack, prevPack, currFeed, prevFeed));
+  for (const c of grouped.leftoverA) out.push(diffOnePoster(c, null, currPack, prevPack, currFeed, prevFeed));
+  for (const p of grouped.leftoverB) out.push(diffOnePoster(null, p, currPack, prevPack, currFeed, prevFeed));
+  return out;
 }
 
 function generate(part) {
@@ -2186,13 +2590,15 @@ function generate(part) {
     return;
   }
   const entry = byCode[selected.code];
-  if (!entry) {
+  const prevEntry = prevByCode ? prevByCode[selected.code] : null;
+  if (!entry && !prevEntry) {
     showErr(`No packed data for stop ${selected.code}`);
     return;
   }
   const want = new Set(names.map((n) => n.toLowerCase()));
-  const parts = (entry.parts || []).filter((p) => want.has(p.route.route_short_name.toLowerCase()));
-  if (!parts.length) {
+  const currParts = ((entry && entry.parts) || []).filter((p) => want.has(p.route.route_short_name.toLowerCase()));
+  const prevParts = ((prevEntry && prevEntry.parts) || []).filter((p) => want.has(p.route.route_short_name.toLowerCase()));
+  if (!currParts.length && !prevParts.length) {
     showErr("No timetable data for the selected routes.");
     return;
   }
@@ -2200,26 +2606,51 @@ function generate(part) {
     if (servedPack && byCode && S.buildClockIndex && !servedPack.clock) {
       servedPack.clock = S.buildClockIndex(byCode);
     }
-    const merged = P.mergePosterParts(parts);
-    const geo = (servedPack && servedPack.geo && servedPack.geo[selected.code]) || {};
+    if (changeMode && prevServed && prevByCode && S.buildClockIndex && !prevServed.clock) {
+      prevServed.clock = S.buildClockIndex(prevByCode);
+    }
+    const currMerged = currParts.length ? P.mergePosterParts(currParts) : { headings: [], feed: prevEntry && prevEntry.feed };
+    const prevMerged = prevParts.length ? P.mergePosterParts(prevParts) : { headings: [], feed: entry && entry.feed };
+    const currFeed = (entry && entry.feed) || currMerged.feed || {};
+    const prevFeed = (prevEntry && prevEntry.feed) || prevMerged.feed || {};
+    const headings = changeMode
+      ? diffHeadings(currMerged.headings || [], prevMerged.headings || [], currFeed, prevFeed)
+      : currMerged.headings || [];
+    const currLists = servedPack ? listsFor(names, selected.code, servedPack) : [];
+    const prevLists = changeMode && prevServed ? listsFor(names, selected.code, prevServed) : [];
+    const posters = changeMode
+      ? diffPosters(currLists, prevLists, servedPack, prevServed, currFeed, prevFeed)
+      : currLists;
+    const geo =
+      (servedPack && servedPack.geo && servedPack.geo[selected.code]) ||
+      (prevServed && prevServed.geo && prevServed.geo[selected.code]) ||
+      {};
     const street = S.streetDirectionLabel
       ? S.streetDirectionLabel({ cardinal_direction: geo.cd, primary_street: geo.street })
       : "";
     const predUrl = P.stopPredictionUrl ? P.stopPredictionUrl(selected.code) : "";
     const qr =
-      (entry.qrBits && P.qrSvgFromBits && P.qrSvgFromBits(entry.qrBits)) ||
+      (entry && entry.qrBits && P.qrSvgFromBits && P.qrSvgFromBits(entry.qrBits)) ||
       (predUrl && P.qrSvgWithLogo && P.qrSvgWithLogo(predUrl)) ||
       "";
+    const renderPack = changeMode
+      ? {
+          ...(servedPack || prevServed || {}),
+          geo: { ...((prevServed && prevServed.geo) || {}), ...((servedPack && servedPack.geo) || {}) },
+          stopRoutes: { ...((prevServed && prevServed.stopRoutes) || {}), ...((servedPack && servedPack.stopRoutes) || {}) },
+        }
+      : servedPack;
     lastHtml = renderHybridHtml({
       fit: lastFit,
       part: lastPart,
-      headings: merged.headings || [],
-      posters: servedPack ? listsFor(names, selected.code) : [],
-      servedPack,
+      diff: changeMode,
+      headings,
+      posters,
+      servedPack: renderPack,
       stopCode: selected.code,
       stopName: selected.name,
       street,
-      feed: entry.feed || merged.feed || {},
+      feed: currFeed,
       qr,
       predUrl,
     });
@@ -2305,7 +2736,7 @@ qEl.addEventListener("keydown", (e) => {
 resultsEl.addEventListener("click", (e) => {
   const btn = e.target.closest(".result");
   if (!btn) return;
-  const stop = stops.find((s) => s.code === btn.dataset.code);
+  const stop = allStops().find((s) => s.code === btn.dataset.code);
   if (stop) showPicked(stop);
 });
 
@@ -2320,7 +2751,8 @@ routesEl.addEventListener("change", () => {
 goEl.addEventListener("click", () => generate("both"));
 if (goTimesEl) goTimesEl.addEventListener("click", () => generate("timetable"));
 if (goStopsEl) goStopsEl.addEventListener("click", () => generate("stops"));
-document.getElementById("save").addEventListener("click", download);
+const saveEl = document.getElementById("save");
+if (saveEl) saveEl.addEventListener("click", download);
 document.getElementById("open").addEventListener("click", openTab);
 
 async function loadGzip(url) {
@@ -2359,22 +2791,25 @@ function findStop(code) {
   const raw = String(code || "").trim();
   if (!raw) return null;
   const bare = raw.replace(/^0+/, "");
+  const pool = allStops();
   return (
-    stops.find((s) => s.code === raw || s.code.toLowerCase() === raw.toLowerCase()) ||
-    stops.find((s) => s.code.replace(/^0+/, "") === bare) ||
+    pool.find((s) => s.code === raw || s.code.toLowerCase() === raw.toLowerCase()) ||
+    pool.find((s) => s.code.replace(/^0+/, "") === bare) ||
     null
   );
 }
 
 function openFromQuery() {
-  const code = new URLSearchParams(location.search).get("stop");
+  const params = new URLSearchParams(location.search);
+  const code = params.get("stop");
+  const part = params.get("part");
   const stop = findStop(code);
   if (!stop) {
     if (code) showErr(`No timetable data for stop ${code}.`);
     return;
   }
   showPicked(stop);
-  generate("both");
+  generate(part === "timetable" || part === "stops" ? part : "both");
 }
 
 qEl.disabled = true;
@@ -2386,12 +2821,19 @@ Promise.all([
   fetch("data/locations.json")
     .then((res) => (res.ok ? res.json() : null))
     .catch(() => null),
+  changeMode ? loadGzip("data/prev-pack.json.gz") : Promise.resolve(null),
+  changeMode ? loadGzip("data/prev-served.json.gz") : Promise.resolve(null),
 ])
-  .then(([pack, served, , loc]) => {
+  .then(([pack, served, , loc, prevPack, prevServedData]) => {
     stops = pack.stops || [];
     byCode = pack.byCode || {};
     servedPack = served;
     locations = loc || { reviewed: [], stops: {} };
+    if (prevPack) {
+      prevByCode = prevPack.byCode || {};
+      prevStops = prevPack.stops || [];
+    }
+    if (prevServedData) prevServed = prevServedData;
     qEl.disabled = false;
     showErr("");
     openFromQuery();

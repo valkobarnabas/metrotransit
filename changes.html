@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Service changes · Custom Metro Transit posters</title>
+  <link rel="icon" type="image/png" href="data/metrologo-mark.png" />
+  <link rel="shortcut icon" type="image/png" href="data/metrologo-mark.png" />
+  <link rel="apple-touch-icon" href="data/metrologo-mark.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="changes">
+  <nav class="site-nav">
+    <a class="brand" href="index.html"><img src="data/metrologo-mark.png" alt="" /> Custom Metro Transit posters</a>
+    <a href="timetable.html">Timetable generator</a>
+    <a href="hybrid.html">Hybrid generator</a>
+    <a href="map.html">Map of bus stops</a>
+    <a href="changes.html" aria-current="page">Service changes</a>
+  </nav>
+  <main class="box">
+    <h1>View latest service changes at a stop</h1>
+    <p class="lead">Compared to last service calendar (html only).</p>
+    <div class="change-legend">
+      <span><i class="change-swatch added"></i> Added</span>
+      <span><i class="change-swatch moved"></i> Changed by 10 minutes or less</span>
+      <span><i class="change-swatch removed"></i> Removed</span>
+    </div>
+    <label class="field">
+      <span>Stop</span>
+      <input id="q" type="search" autocomplete="off" placeholder="0716 or University at N Orchard" />
+    </label>
+    <div id="results" class="results" hidden></div>
+
+    <section id="picked" class="picked" hidden>
+      <div class="picked-name" id="picked-name"></div>
+      <div class="picked-meta" id="picked-meta"></div>
+
+      <div class="row">
+        <label class="check"><input type="checkbox" id="noschool" checked /> Exclude school extras</label>
+      </div>
+      <div id="routes" class="routes"></div>
+
+      <button type="button" id="go">Compare full poster</button>
+      <div class="gen-alt">
+        <button type="button" id="go-times">Compare timetable only</button>
+        <button type="button" id="go-stops">Compare stop list only</button>
+      </div>
+    </section>
+    <p id="err" class="err" hidden></p>
+  </main>
+
+  <section id="out" class="out" hidden>
+    <div class="out-bar">
+      <button type="button" id="open">Open HTML in new tab</button>
+    </div>
+    <iframe id="preview" title="Service change preview"></iframe>
+  </section>
+
+  <script>
+    async function loadIsolated(url) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Could not load " + url);
+      new Function(await res.text())();
+    }
+    loadIsolated("generate_poster.js")
+      .then(function () { return loadIsolated("served.js"); })
+      .then(function () {
+        const s = document.createElement("script");
+        s.src = "hybrid.js";
+        document.body.appendChild(s);
+      })
+      .catch(function (err) {
+        const el = document.getElementById("err");
+        if (!el) return;
+        el.hidden = false;
+        el.textContent = err && err.message ? err.message : String(err);
+      });
+  </script>
+</body>
+</html>

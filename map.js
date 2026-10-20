@@ -78,7 +78,7 @@ function tipHtml(stop) {
     <div class="tip-routes">${pills(stop.routes) || '<span class="dir">No scheduled routes</span>'}</div>
     <div class="tip-actions">
       <a href="timetable.html?stop=${code}">View timetable</a>
-      <a href="stoplist.html?stop=${code}">View stop list</a>
+      <a href="hybrid.html?stop=${code}&amp;part=stops">View stop list</a>
       <a href="hybrid.html?stop=${code}">View hybrid poster</a>
     </div>
   </div>`;
