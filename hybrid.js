@@ -2024,7 +2024,9 @@ const FIT_SCRIPT = `
       if (amSet) amSet.classList.remove("solo");
       if (pmSet) pmSet.classList.remove("solo");
       if (amSet && pmSet) {
-        nodes = Array.prototype.slice.call(amSet.querySelectorAll(":scope > .tbox.pm, :scope > .roll-row"));
+        nodes = Array.prototype.slice.call(amSet.querySelectorAll(":scope > .tbox.pm"));
+        for (k = 0; k < nodes.length; k++) pmSet.appendChild(nodes[k]);
+        nodes = Array.prototype.slice.call(amSet.querySelectorAll(":scope > .tbox.roll, :scope > .roll-row"));
         for (k = 0; k < nodes.length; k++) pmSet.appendChild(nodes[k]);
         pmSet.hidden = false;
       }
