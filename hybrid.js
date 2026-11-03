@@ -46,6 +46,15 @@ function norm(s) {
     .trim();
 }
 
+const DIR_WORD = /^(n|s|e|w|ne|nw|se|sw)$/;
+
+function looseNorm(s) {
+  return norm(s)
+    .split(" ")
+    .filter((w) => w && !DIR_WORD.test(w))
+    .join(" ");
+}
+
 function allStops() {
   if (!changeMode || !prevStops.length) return stops;
   const seen = new Set(stops.map((s) => s.code));
@@ -59,16 +68,20 @@ function searchStops(query) {
   const exact = pool.filter((s) => s.code === raw || s.code.replace(/^0+/, "") === raw.replace(/^0+/, ""));
   if (/^\d{3,5}$/.test(raw) && exact.length) return exact.slice(0, 8);
   const nq = norm(raw);
+  const lq = looseNorm(raw);
   const scored = [];
   for (const s of pool) {
     const name = norm(s.name);
+    const loose = looseNorm(s.name);
+    const street = norm(s.street);
+    const looseStreet = looseNorm(s.street);
     const code = s.code.toLowerCase();
     let score = 0;
     if (code === raw.toLowerCase()) score = 100;
     else if (code.startsWith(raw.toLowerCase())) score = 80;
-    else if (name.startsWith(nq)) score = 60;
-    else if (name.includes(nq)) score = 40;
-    else if (norm(s.street).includes(nq)) score = 20;
+    else if (name.startsWith(nq) || (lq && loose.startsWith(lq))) score = 60;
+    else if (name.includes(nq) || (lq && loose.includes(lq))) score = 40;
+    else if (street.includes(nq) || (lq && looseStreet.includes(lq))) score = 20;
     if (score) scored.push({ s, score });
   }
   scored.sort((a, b) => b.score - a.score || a.s.name.localeCompare(b.s.name));
@@ -361,6 +374,74 @@ function matchPoster(heading, posters, used) {
   return posters[best];
 }
 
+function compassDir(value) {
+  const dir = String(value || "").toLowerCase();
+  if (dir === "northbound" || dir === "southbound" || dir === "eastbound" || dir === "westbound") return dir;
+  return "";
+}
+
+function posterDestSet(poster) {
+  const set = new Set();
+  const add = (value) => {
+    const dest = normDest(value);
+    if (dest) set.add(dest);
+  };
+  add(posterDest(poster));
+  for (const board of poster.boards || []) add(board && board.dest);
+  return set;
+}
+
+function headingMatchesPoster(heading, poster) {
+  const left = compassDir(heading.routeDirection);
+  const right = compassDir(poster.heading);
+  if (left && right && left !== right) return false;
+  const dest = normDest(heading.board && heading.board.dest);
+  if (!dest) return false;
+  return posterDestSet(poster).has(dest);
+}
+
+function headingsForPoster(headings, poster) {
+  return (headings || []).filter((heading) => headingMatchesPoster(heading, poster));
+}
+
+function combineHybridDocs(htmls) {
+  const docs = (htmls || []).filter(Boolean);
+  if (docs.length <= 1) return docs[0] || "";
+  const sheets = docs
+    .map((html) => {
+      const match = html.match(/<article class="sheet"[\s\S]*?<\/article>/);
+      return match ? match[0] : "";
+    })
+    .filter(Boolean);
+  if (sheets.length <= 1) return docs[0];
+  return docs[0].replace(/<article class="sheet"[\s\S]*?<\/article>/, sheets.join("\n"));
+}
+
+function sameRouteBadge(badge, routeName) {
+  const mark = String(badge || "").toUpperCase();
+  const route = String(routeName || "").toUpperCase();
+  if (!mark || !route) return false;
+  if (mark === route) return true;
+  if (!S || !S.boardParts) return false;
+  const parts = S.boardParts(mark);
+  return !!(parts && parts.variant && String(parts.base || "").toUpperCase() === route);
+}
+
+function headingForBadge(name, headings) {
+  return (
+    (headings || []).find((h) => sameRouteBadge(name, h.routeShortName) || sameRouteBadge(name, h.board && h.board.code)) ||
+    {}
+  );
+}
+
+function posterForBadge(name, posters) {
+  return (
+    (posters || []).find((p) => sameRouteBadge(name, p.titleCode) || sameRouteBadge(name, p.routeName)) ||
+    (posters || [])[0] ||
+    null
+  );
+}
+
 function routeListPhrase(names) {
   if (!names.length) return "";
   if (names.length === 1) return names[0];
@@ -552,19 +633,29 @@ function renderHybridHtml(opts) {
   const street = opts.street || "";
   const names = [];
   const seen = new Set();
-  for (const heading of headings) {
-    const n = heading.routeShortName;
-    if (!n || seen.has(n)) continue;
-    seen.add(n);
-    names.push(n);
+  const supplied = (opts.badgeNames || []).map((n) => String(n || "").trim()).filter(Boolean);
+  if (supplied.length) {
+    for (const n of supplied) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      names.push(n);
+    }
+  } else {
+    for (const heading of headings) {
+      const n = heading.routeShortName;
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      names.push(n);
+    }
   }
   const kicker = `Metro Transit Route${names.length > 1 ? "s" : ""} ${routeListPhrase(names)}`;
   const grid = badgeGrid(names.length);
   const badges = names
     .map((n) => {
-      const heading = headings.find((h) => h.routeShortName === n) || {};
-      const bg = heading.routeColor || "#333366";
-      const fg = heading.routeTextColor || "#ffffff";
+      const heading = headingForBadge(n, headings);
+      const poster = posterForBadge(n, posters);
+      const bg = heading.routeColor || (poster && poster.color) || "#333366";
+      const fg = heading.routeTextColor || (poster && poster.ink) || "#ffffff";
       let font = n.length > 2 ? 42 : n.length > 1 ? 56 : 72;
       font = Math.max(11, Math.round(font * (grid.size / 0.92)));
       return `<div class="badge" style="background:${escapeText(bg)};color:${escapeText(fg)};width:${grid.size}in;height:${grid.size}in;font-size:${font}px"><span class="mark">${escapeText(n)}</span></div>`;
@@ -575,7 +666,8 @@ function renderHybridHtml(opts) {
   const part = opts.part === "timetable" || opts.part === "stops" ? opts.part : "both";
   const timeKey = `<div class="time-key"><span>Key:</span><span class="key-sample">AM</span><span class="key-sample pm">PM</span></div>`;
   const diff = !!opts.diff;
-  const times = part === "stops" ? "" : `${timesHtml(headings)}\n${timeKey}`;
+  const showTimes = part !== "stops" && headings.length > 0;
+  const times = showTimes ? `${timesHtml(headings)}\n${timeKey}` : "";
   const manyLists = lists.length > 1;
   const listHtml = lists
     .map((row) => {
@@ -587,7 +679,7 @@ function renderHybridHtml(opts) {
     .join("\n");
   const listHtmlOut = part === "timetable" ? "" : listHtml;
   const mastRule =
-    part === "stops"
+    !showTimes
       ? ""
       : `<div class="mast-rule" aria-hidden="true">
       <span class="ns-line"></span>
@@ -1205,6 +1297,7 @@ function renderHybridHtml(opts) {
       * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body > *:not(.sheet) { display: none !important; }
       .sheet { width: 8.3in; margin: 0 !important; }
+      .sheet + .sheet { break-before: page; }
       .key-sample { padding-bottom: 0.5px; }
     }
   </style>
@@ -1256,8 +1349,12 @@ const FIT_SCRIPT = `
     document.body.removeChild(probe);
     return inch;
   }
-  function sheetEl() { return document.querySelector(".sheet"); }
-  function heightIn() { return sheetEl().offsetHeight / inchPx(); }
+  function sheetEl() { return document.querySelector("article.sheet"); }
+  function heightIn(sheet) {
+    var el = sheet || sheetEl();
+    if (!el) return 0;
+    return el.offsetHeight / inchPx();
+  }
   function unsplit(sheet) {
     var flow = sheet.querySelector(".flow");
     if (!flow || !flow.getAttribute("data-split")) return;
@@ -2088,7 +2185,7 @@ const FIT_SCRIPT = `
     var hi = 1;
     var best = "";
     var i, applied;
-    if (heightIn() <= LIMIT) {
+    if (heightIn(sheet) <= LIMIT) {
       sheet.style.setProperty("--fit", "1");
       return;
     }
@@ -2096,7 +2193,7 @@ const FIT_SCRIPT = `
       applied = ((lo + hi) / 2).toFixed(3);
       sheet.style.setProperty("--fit", applied);
       relayout(sheet);
-      if (heightIn() > LIMIT) hi = Number(applied);
+      if (heightIn(sheet) > LIMIT) hi = Number(applied);
       else {
         lo = Number(applied);
         best = applied;
@@ -2105,7 +2202,7 @@ const FIT_SCRIPT = `
     if (!best) best = lo.toFixed(3);
     sheet.style.setProperty("--fit", best);
     relayout(sheet);
-    for (i = 0; i < 6 && heightIn() > LIMIT && Number(best) > 0.62; i++) {
+    for (i = 0; i < 6 && heightIn(sheet) > LIMIT && Number(best) > 0.62; i++) {
       best = Math.max(0.62, Number(best) - 0.005).toFixed(3);
       sheet.style.setProperty("--fit", best);
       relayout(sheet);
@@ -2113,13 +2210,17 @@ const FIT_SCRIPT = `
   }
   function note() {
     var el = document.getElementById("page-count");
-    var sheet = sheetEl();
-    if (!el || !sheet) return;
-    var h = heightIn();
-    var w = sheet.offsetWidth / inchPx();
-    var paperH = h + MARGIN_B;
-    var pages = paperH <= 11.02 ? 1 : Math.ceil(paperH / 11);
-    var text = paperH.toFixed(2) + " inches tall, " + (w + MARGIN_L).toFixed(2) + " inches wide";
+    var sheets = document.querySelectorAll("article.sheet");
+    if (!el || !sheets.length) return;
+    var i, tall = 0, pages = 0, maxW = 0;
+    for (i = 0; i < sheets.length; i++) {
+      var h = heightIn(sheets[i]);
+      tall += h;
+      var paperH = h + MARGIN_B;
+      pages += paperH <= 11.02 ? 1 : Math.ceil(paperH / 11);
+      maxW = Math.max(maxW, sheets[i].offsetWidth / inchPx());
+    }
+    var text = tall.toFixed(2) + " inches tall, " + (maxW + MARGIN_L).toFixed(2) + " inches wide";
     if (pages > 1) text += " · " + pages + " pages";
     el.textContent = text;
   }
@@ -2161,32 +2262,39 @@ const FIT_SCRIPT = `
     sheet.addEventListener("mousemove", show);
     sheet.addEventListener("mouseleave", hide);
   }
-  function apply() {
-    var sheet = sheetEl();
-    var box = document.getElementById("fit-page");
-    if (!sheet) return;
+  function applySheet(sheet, box) {
     unsplit(sheet);
     sheet.style.setProperty("--fit", "1");
     relayout(sheet);
-    var h = heightIn();
-    var lab = box && box.closest("label");
-    if (lab) lab.hidden = h <= LIMIT;
+    var h = heightIn(sheet);
     if (box && box.checked && h > LIMIT) {
       if (h >= 15) {
         split(sheet);
         relayout(sheet);
-        var two = heightIn();
+        var two = heightIn(sheet);
         if (two > h * 0.95) {
           unsplit(sheet);
           relayout(sheet);
         }
       }
-      if (heightIn() > LIMIT) shrink(sheet);
+      if (heightIn(sheet) > LIMIT) shrink(sheet);
     }
     relayout(sheet);
     centerTimes(sheet);
     bindChangeTips(sheet);
-    report(h > LIMIT, box && box.checked);
+    return heightIn(sheet) > LIMIT;
+  }
+  function apply() {
+    var sheets = document.querySelectorAll("article.sheet");
+    var box = document.getElementById("fit-page");
+    if (!sheets.length) return;
+    var i, anyTall = false;
+    for (i = 0; i < sheets.length; i++) {
+      if (applySheet(sheets[i], box)) anyTall = true;
+    }
+    var lab = box && box.closest("label");
+    if (lab) lab.hidden = !anyTall;
+    report(anyTall, box && box.checked);
     note();
   }
   function printPoster() {
@@ -2642,12 +2750,10 @@ function generate(part) {
           stopRoutes: { ...((prevServed && prevServed.stopRoutes) || {}), ...((servedPack && servedPack.stopRoutes) || {}) },
         }
       : servedPack;
-    lastHtml = renderHybridHtml({
+    const posterOpts = {
       fit: lastFit,
       part: lastPart,
       diff: changeMode,
-      headings,
-      posters,
       servedPack: renderPack,
       stopCode: selected.code,
       stopName: selected.name,
@@ -2655,7 +2761,20 @@ function generate(part) {
       feed: currFeed,
       qr,
       predUrl,
-    });
+    };
+    const splitBranches = posters.length > 1;
+    lastHtml = splitBranches
+      ? combineHybridDocs(
+          posters.map((poster) =>
+            renderHybridHtml({
+              ...posterOpts,
+              headings: headingsForPoster(headings, poster),
+              posters: [poster],
+              badgeNames: [poster.titleCode || poster.routeName],
+            })
+          )
+        )
+      : renderHybridHtml({ ...posterOpts, headings, posters });
     preview.srcdoc = lastHtml;
     outEl.hidden = false;
     outEl.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -2667,7 +2786,8 @@ function generate(part) {
 function fitPreview() {
   const doc = preview.contentDocument;
   if (!doc || !doc.body) return;
-  const sheet = doc.querySelector(".sheet");
+  const sheets = doc.querySelectorAll("article.sheet");
+  const sheet = sheets.length ? sheets[sheets.length - 1] : null;
   const h = sheet
     ? Math.ceil(sheet.offsetTop + sheet.offsetHeight + 32)
     : Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
@@ -2692,8 +2812,7 @@ preview.addEventListener("load", () => {
   if (fit) fit.addEventListener("change", () => setTimeout(fitPreview, 30));
   if (typeof ResizeObserver === "function") {
     const ro = new ResizeObserver(() => fitPreview());
-    const sheet = doc.querySelector(".sheet");
-    if (sheet) ro.observe(sheet);
+    doc.querySelectorAll("article.sheet").forEach((sheet) => ro.observe(sheet));
   }
 });
 

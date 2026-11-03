@@ -31,22 +31,35 @@ function norm(s) {
     .trim();
 }
 
+const DIR_WORD = /^(n|s|e|w|ne|nw|se|sw)$/;
+
+function looseNorm(s) {
+  return norm(s)
+    .split(" ")
+    .filter((w) => w && !DIR_WORD.test(w))
+    .join(" ");
+}
+
 function searchStops(query) {
   const raw = query.trim();
   if (!raw) return [];
   const exact = stops.filter((s) => s.code === raw || s.code.replace(/^0+/, "") === raw.replace(/^0+/, ""));
   if (/^\d{3,5}$/.test(raw) && exact.length) return exact.slice(0, 8);
   const nq = norm(raw);
+  const lq = looseNorm(raw);
   const scored = [];
   for (const s of stops) {
     const name = norm(s.name);
+    const loose = looseNorm(s.name);
+    const street = norm(s.street);
+    const looseStreet = looseNorm(s.street);
     const code = s.code.toLowerCase();
     let score = 0;
     if (code === raw.toLowerCase()) score = 100;
     else if (code.startsWith(raw.toLowerCase())) score = 80;
-    else if (name.startsWith(nq)) score = 60;
-    else if (name.includes(nq)) score = 40;
-    else if (norm(s.street).includes(nq)) score = 20;
+    else if (name.startsWith(nq) || (lq && loose.startsWith(lq))) score = 60;
+    else if (name.includes(nq) || (lq && loose.includes(lq))) score = 40;
+    else if (street.includes(nq) || (lq && looseStreet.includes(lq))) score = 20;
     if (score) scored.push({ s, score });
   }
   scored.sort((a, b) => b.score - a.score || a.s.name.localeCompare(b.s.name));
