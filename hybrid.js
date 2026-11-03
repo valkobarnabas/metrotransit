@@ -374,12 +374,6 @@ function matchPoster(heading, posters, used) {
   return posters[best];
 }
 
-function compassDir(value) {
-  const dir = String(value || "").toLowerCase();
-  if (dir === "northbound" || dir === "southbound" || dir === "eastbound" || dir === "westbound") return dir;
-  return "";
-}
-
 function posterDestSet(poster) {
   const set = new Set();
   const add = (value) => {
@@ -392,9 +386,6 @@ function posterDestSet(poster) {
 }
 
 function headingMatchesPoster(heading, poster) {
-  const left = compassDir(heading.routeDirection);
-  const right = compassDir(poster.heading);
-  if (left && right && left !== right) return false;
   const dest = normDest(heading.board && heading.board.dest);
   if (!dest) return false;
   return posterDestSet(poster).has(dest);
