@@ -537,7 +537,7 @@ function routeLine(heading) {
   const dest = String((heading.board && heading.board.dest) || "").trim();
   const also = extraHeadsign(heading);
   return `<div class="hy-head">
-    <span class="hy-line">
+    <span class="hy-line${also ? " dual" : ""}">
       <span class="hy-route">Route ${escapeText(code)}</span>
       ${dir ? `<span class="hy-dir">${escapeText(dir)}</span>` : ""}
       ${dest ? `<span class="hy-towards">towards</span><span class="hy-dest" data-text="${escapeText(dest)}">${escapeText(dest)}</span>` : ""}
@@ -894,6 +894,7 @@ function renderHybridHtml(opts) {
       color: #111;
       padding: 0;
     }
+    .hy-line.dual { flex-wrap: nowrap; white-space: nowrap; }
     .hy-route {
       font-weight: 700;
       border: 1px solid var(--route);
@@ -1835,7 +1836,35 @@ const FIT_SCRIPT = `
     el.style.height = (innerH + (parseFloat(cs.borderTopWidth) || 0) + (parseFloat(cs.borderBottomWidth) || 0)) + "px";
     el.setAttribute("aria-label", sample);
   }
+  function fitRouteLines(sheet) {
+    var lines = sheet.querySelectorAll(".hy-line.dual");
+    var i, d, dests, guard, cur;
+    for (i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      dests = line.querySelectorAll(".hy-dest");
+      for (d = 0; d < dests.length; d++) {
+        dests[d].style.fontSize = "";
+        dests[d].style.letterSpacing = "";
+      }
+      var max = line.clientWidth;
+      if (!(max > 0) || !dests.length) continue;
+      guard = 0;
+      while (line.scrollWidth > max + 1 && guard < 14) {
+        guard++;
+        for (d = 0; d < dests.length; d++) {
+          cur = parseFloat(getComputedStyle(dests[d]).fontSize) || 15;
+          if (cur <= 9) break;
+          dests[d].style.fontSize = Math.max(9, cur - 0.5) + "px";
+        }
+        if (cur <= 9) {
+          for (d = 0; d < dests.length; d++) dests[d].style.letterSpacing = "0.04em";
+          break;
+        }
+      }
+    }
+  }
   function centerHeads(sheet) {
+    fitRouteLines(sheet);
     var dests = sheet.querySelectorAll(".hy-dest");
     var i;
     for (i = 0; i < dests.length; i++) paintHead(dests[i]);

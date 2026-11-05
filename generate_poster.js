@@ -616,9 +616,39 @@ function viaHeadsignMerge(route, direction, keepDest, foldDest, stopCodes, displ
   };
 }
 
+/** West Loop 80 after the Eagle Heights fork: both headsigns share the stops ahead. */
+const ROUTE_80_MEMORIAL_SHARED = new Set([
+  "2076",
+  "2349",
+  "2091",
+  "2007",
+  "2267",
+  "2195",
+  "2145",
+  "0298",
+  "0573",
+  "0438",
+  "0706",
+  "0336",
+  "0005",
+  "0061",
+  "0075",
+  "0039",
+  "0765",
+  "0049",
+]);
+
 const HEADSIGN_MERGES = [
   viaHeadsignMerge("A", /westbound/i, "JUNCTION", "JUNCTION VIA HIGH CROSSING", A_WESTBOUND_FROM_HIGH_CROSSING_E_SPRINGS, "Junction"),
   viaHeadsignMerge("A", /eastbound/i, "AMERICAN CENTER", "AMERICAN CENTER VIA HIGH CROSSING", A_EASTBOUND_EASTPARK),
+  viaHeadsignMerge(
+    "80",
+    /west loop/i,
+    "MEMORIAL UNION",
+    "MEMORIAL UNION VIA EAGLE HEIGHTS",
+    ROUTE_80_MEMORIAL_SHARED,
+    "Memorial Union"
+  ),
 ];
 
 function matchingTerminusRule(a, b) {
@@ -675,6 +705,55 @@ function matchingHeadsignRule(a, b, stop) {
   return null;
 }
 
+function columnDayList(col) {
+  if (col && col.days && col.days.length) return col.days.slice();
+  const named = {
+    weekday: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+    weekend: ["Sat", "Sun"],
+    frisat: ["Fri", "Sat"],
+    mt: ["Mon", "Tue", "Wed", "Thu"],
+    sunthu: ["Sun", "Mon", "Tue", "Wed", "Thu"],
+    daily: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+    mon: ["Mon"],
+    tue: ["Tue"],
+    wed: ["Wed"],
+    thu: ["Thu"],
+    fri: ["Fri"],
+    sat: ["Sat"],
+    sun: ["Sun"],
+  };
+  const days = named[String((col && col.key) || "")];
+  return days ? days.slice() : [];
+}
+
+function sortTimeDeps(deps) {
+  return (deps || []).slice().sort((x, y) => x.hh - y.hh || x.mm - y.mm || (x.sessionOnly ? 1 : 0) - (y.sessionOnly ? 1 : 0));
+}
+
+function mergeColumnsByDay(aCols, bCols) {
+  const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const byDay = new Map();
+  for (const col of [...(aCols || []), ...(bCols || [])]) {
+    const deps = (col.deps || []).map((d) => ({ ...d }));
+    for (const day of columnDayList(col)) {
+      const prev = byDay.get(day) || [];
+      byDay.set(day, uniqueTimes(sortTimeDeps([...prev, ...deps])));
+    }
+  }
+  const buckets = [];
+  for (const day of order) {
+    if (!byDay.has(day)) continue;
+    const deps = byDay.get(day);
+    const match = buckets.find((b) => timesEqual(b.deps, deps));
+    if (match) match.days.push(day);
+    else buckets.push({ days: [day], deps });
+  }
+  return buckets.map((b) => {
+    const named = labelDayCluster(b.days);
+    return { ...named, deps: b.deps, days: b.days };
+  });
+}
+
 function mergeHeadingColumns(aCols, bCols) {
   const out = (aCols || []).map((col) => ({ ...col, deps: (col.deps || []).slice() }));
   for (const col of bCols || []) {
@@ -715,7 +794,7 @@ function mergePairedTermini(day, evening, rule) {
 }
 
 function mergeHeadsignPair(keep, fold, rule) {
-  const columns = mergeHeadingColumns(keep.columns, markColumnDeps(fold.columns, { noteStar: true }));
+  const columns = mergeColumnsByDay(keep.columns, markColumnDeps(fold.columns, { noteStar: true }));
   const earliestA = keep.earliest != null ? keep.earliest : 99 * 60;
   const earliestB = fold.earliest != null ? fold.earliest : 99 * 60;
   return {
