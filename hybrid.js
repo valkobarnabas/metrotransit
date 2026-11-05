@@ -2273,6 +2273,7 @@ const FIT_SCRIPT = `
     relayout(sheet);
     centerTimes(sheet);
     bindChangeTips(sheet);
+    if (box && box.checked) return h > LIMIT || heightIn(sheet) > LIMIT;
     return heightIn(sheet) > LIMIT;
   }
   function apply() {
@@ -2753,7 +2754,7 @@ function generate(part) {
       qr,
       predUrl,
     };
-    const splitBranches = posters.length > 1;
+    const splitBranches = lastPart !== "timetable" && posters.length > 1;
     lastHtml = splitBranches
       ? combineHybridDocs(
           posters.map((poster) =>
