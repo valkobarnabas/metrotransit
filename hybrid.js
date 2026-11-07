@@ -632,11 +632,11 @@ function renderHybridHtml(opts) {
       names.push(n);
     }
   } else {
-    for (const heading of headings) {
-      const n = heading.routeShortName;
-      if (!n || seen.has(n)) continue;
-      seen.add(n);
-      names.push(n);
+  for (const heading of headings) {
+    const n = heading.routeShortName;
+    if (!n || seen.has(n)) continue;
+    seen.add(n);
+    names.push(n);
     }
   }
   const kicker = `Metro Transit Route${names.length > 1 ? "s" : ""} ${routeListPhrase(names)}`;
@@ -655,7 +655,7 @@ function renderHybridHtml(opts) {
   const qr = opts.qr || "";
   const predUrl = opts.predUrl || "";
   const part = opts.part === "timetable" || opts.part === "stops" ? opts.part : "both";
-  const timeKey = `<div class="time-key"><span>Key:</span><span class="key-sample">AM</span><span class="key-sample pm">PM</span></div>`;
+  const timeKey = `<div class="time-key"><span>Key:</span><span class="key-sample"><span>AM</span></span><span class="key-sample pm"><span>PM</span></span></div>`;
   const diff = !!opts.diff;
   const showTimes = part !== "stops" && headings.length > 0;
   const times = showTimes ? `${timesHtml(headings)}\n${timeKey}` : "";
@@ -1021,7 +1021,7 @@ function renderHybridHtml(opts) {
       left: 0;
       top: 0;
       display: block;
-    }
+}
     .tbox.roll {
   width: calc(100% + 1px);
   min-width: 0;
@@ -1198,6 +1198,23 @@ function renderHybridHtml(opts) {
       white-space: normal;
     }
     .only-cap { font-style: italic; white-space: normal; }
+    .dwell-tag {
+      margin-left: 0.28em;
+      color: var(--muted);
+      font-style: normal;
+      font-weight: 400;
+    }
+    .layover-note {
+      display: block;
+      min-width: 0;
+      margin-top: 1px;
+      font-style: italic;
+      font-size: calc(9px * var(--fit));
+      line-height: calc(14px * var(--fit));
+      color: var(--muted);
+      white-space: normal;
+    }
+    .dwell-not { font-style: italic; font-weight: 400; text-decoration: underline; }
     .only-led {
       display: inline-block;
       box-sizing: border-box;
@@ -1273,6 +1290,7 @@ function renderHybridHtml(opts) {
       font-weight: 500;
       line-height: 1;
     }
+    .key-sample span { transform: translateY(1px); }
     .key-sample.pm { background: #d9d9d9; font-weight: 700; }
     footer.notes {
       margin-top: calc(16px * var(--fit));
@@ -1290,7 +1308,6 @@ function renderHybridHtml(opts) {
       body > *:not(.sheet) { display: none !important; }
       .sheet { width: 8.3in; margin: 0 !important; }
       .sheet + .sheet { break-before: page; }
-      .key-sample { padding-bottom: 0.5px; }
     }
   </style>
 </head>
@@ -2225,7 +2242,7 @@ const FIT_SCRIPT = `
     for (i = 0; i < 6 && heightIn(sheet) > LIMIT && Number(best) > 0.62; i++) {
       best = Math.max(0.62, Number(best) - 0.005).toFixed(3);
       sheet.style.setProperty("--fit", best);
-      relayout(sheet);
+    relayout(sheet);
     }
   }
   function note() {
@@ -2236,7 +2253,7 @@ const FIT_SCRIPT = `
     for (i = 0; i < sheets.length; i++) {
       var h = heightIn(sheets[i]);
       tall += h;
-      var paperH = h + MARGIN_B;
+    var paperH = h + MARGIN_B;
       pages += paperH <= 11.02 ? 1 : Math.ceil(paperH / 11);
       maxW = Math.max(maxW, sheets[i].offsetWidth / inchPx());
     }

@@ -290,6 +290,18 @@ function minutesFromTenths(t) {
   return Number(t) / 10;
 }
 
+/** Route L holds at Milwaukee at Dempsey. Times in the pack are departures. */
+const LAYOVER_MINUTES = {
+  "L|7169|CHEROKEE": 18,
+  "L|7398|OWL CREEK": 15,
+};
+
+function layoverMinutes(inst, code) {
+  const route = String((inst && inst.r) || "");
+  const dest = String((inst && inst.board && inst.board.dest) || "").toUpperCase();
+  return LAYOVER_MINUTES[`${route}|${code}|${dest}`] || 0;
+}
+
 function roundMinutes(n) {
   if (!Number.isFinite(n) || n < 0) return 0;
   return Math.round(n);
@@ -462,21 +474,63 @@ function consumeThrough(inst, code) {
 
 function emitStop(code, serving, subset, emittedEnds, onlyBoards) {
   const rows = [];
-  let num = 0;
+  let arrNum = 0;
+  let depNum = 0;
   let den = 0;
+  let anyLayover = false;
+  let dwellNote = 0;
+  const skipBoards = [];
+  const skipSeen = new Set();
   for (const inst of serving) {
     const m = nextVisitMinutes(inst, code);
     if (m == null) continue;
-    num += m * inst.trips;
-    den += inst.trips;
+    const scheduled = layoverMinutes(inst, code);
+    const dwell = Math.min(scheduled, Math.max(0, m));
+    if (scheduled > 0) {
+      anyLayover = true;
+      if (!dwellNote) dwellNote = scheduled;
+      const trips = inst.trips;
+      arrNum += (m - dwell) * trips;
+      depNum += m * trips;
+      den += trips;
+      continue;
+    }
+    const dest = String((inst.board && inst.board.dest) || "");
+    if (dest && !skipSeen.has(dest)) {
+      skipSeen.add(dest);
+      skipBoards.push(inst.board);
+    }
   }
-  rows.push({
+  if (!anyLayover) {
+    arrNum = 0;
+    depNum = 0;
+    den = 0;
+    for (const inst of serving) {
+      const m = nextVisitMinutes(inst, code);
+      if (m == null) continue;
+      depNum += m * inst.trips;
+      den += inst.trips;
+    }
+  }
+  const departure = den ? depNum / den : 0;
+  const arrival = anyLayover && den ? arrNum / den : departure;
+  const base = {
     type: "stop",
     code,
-    minutes: den ? num / den : 0,
     trips: den,
     onlyBoards: onlyBoards && onlyBoards.length ? onlyBoards : null,
-  });
+  };
+  if (anyLayover && displayMinute(arrival) !== displayMinute(departure)) {
+    rows.push({
+      ...base,
+      minutes: arrival,
+      departMinutes: departure,
+      layoverSkip: skipBoards,
+      layoverDwell: dwellNote,
+    });
+  } else {
+    rows.push({ ...base, minutes: departure });
+  }
   const ends = [];
   for (const inst of subset) {
     if (!consumeThrough(inst, code)) continue;
@@ -695,6 +749,7 @@ function applyIgnoredTermini(result, routeName) {
 function mergeInstances(instances) {
   const items = instances.map((inst) => ({
     board: inst.board,
+    r: inst.r,
     trips: inst.trips,
     seq: inst.remaining.slice(),
     minutes: (inst.minutes || []).slice(),
@@ -1339,11 +1394,27 @@ function loiHtml(code, locations) {
     .join("")}</div>`;
 }
 
-function stopCell(code, geo, star) {
+function stopCell(code, geo, star, suffix) {
   const g = geo[code] || {};
   const name = g.n || code;
   const mark = star ? "*" : "";
-  return `<span class="stop-name">${escapeHtml(name)}${mark}</span> <span class="stop-no">(#${escapeHtml(code)})</span>`;
+  const tail = suffix ? ` <span class="dwell-tag">${escapeHtml(String(suffix).trim())}</span>` : "";
+  return `<span class="stop-name">${escapeHtml(name)}${mark}</span> <span class="stop-no">(#${escapeHtml(code)})</span>${tail}`;
+}
+
+function layoverNoteHtml(boards, minutes) {
+  if (!boards || !boards.length || !minutes) return "";
+  const dests = [...new Set(boards.map((board) => ledParts(board).dest).filter(Boolean))];
+  if (!dests.length) return "";
+  const led = (dest) => `<span class="only-led">${escapeHtml(dest)}</span>`;
+  const phrase =
+    dests.length === 1
+      ? led(dests[0])
+      : dests.length === 2
+        ? `${led(dests[0])} and ${led(dests[1])}`
+        : `${dests.slice(0, -1).map(led).join(", ")}, and ${led(dests[dests.length - 1])}`;
+  const n = Math.round(minutes);
+  return `<div class="layover-note"><span class="only-cap">(trips towards </span>${phrase}<span class="only-cap"> do <span class="dwell-not">not</span> hold here for ${n} minutes.)</span></div>`;
 }
 
 function collapseEndNotes(rows) {
@@ -1423,21 +1494,27 @@ function rowsHtml(rows, originCode, posterRouteName, radius, pack, locations, ex
       xferCodes.length > 1
         ? transfersForStops(xferCodes, posterRouteName, radius, pack, { excludeSchool }, boards)
         : transfersForStop(xferCodes[0], posterRouteName, radius, pack, { excludeSchool }, boards);
-    const names = (row.alsoCodes && row.alsoCodes.length ? row.alsoCodes : [row.code])
-      .map((code) => stopCell(code, geo, row.starTerminus && code === row.code))
-      .join(" or<br />");
     const ch = row.change || {};
     const tip = (text) => (text ? ` data-tip="${escapeHtml(text)}"` : "");
     const cls = (name, extraClass) => {
       const kind = ch[name];
       return `${extraClass}${kind ? " " + kind : ""}`;
     };
-    out.push(`<tr class="data${alt}${extra}${ch.row ? " " + ch.row : ""}">
-      <td class="${cls("idx", "idx")}"${tip(ch.idxTip)}>${idx}</td>
-      <td class="${cls("min", "min")}"${tip(ch.minTip)}>${formatMinutes(row.minutes)}</td>
-      <td class="${cls("sn", "sn")}"${tip(ch.snTip)}>${names}${onlyServedHtml(row.onlyBoards)}</td>
+    const layover = row.departMinutes != null && displayMinute(row.departMinutes) !== displayMinute(row.minutes);
+    const nameHtml = (suffix) =>
+      (row.alsoCodes && row.alsoCodes.length ? row.alsoCodes : [row.code])
+        .map((code) => stopCell(code, geo, row.starTerminus && code === row.code, suffix))
+        .join(" or<br />");
+    const pushRow = (index, minutes, suffix, minuteTip, note) => {
+      out.push(`<tr class="data${alt}${extra}${ch.row ? " " + ch.row : ""}">
+      <td class="${cls("idx", "idx")}"${tip(ch.idxTip)}>${index}</td>
+      <td class="${cls("min", "min")}"${tip(minuteTip)}>${formatMinutes(minutes)}</td>
+      <td class="${cls("sn", "sn")}"${tip(ch.snTip)}>${nameHtml(suffix)}${onlyServedHtml(row.onlyBoards)}${note || ""}</td>
       <td class="${cls("xf", "xf")}"${tip(ch.xfTip)}>${transfersHtml(xfer, geo)}</td>
     </tr>`);
+    };
+    pushRow(idx, row.minutes, layover ? "[arrival]" : "", ch.minTip, "");
+    if (layover) pushRow("", row.departMinutes, "[departure]", "", layoverNoteHtml(row.layoverSkip, row.layoverDwell));
   }
   return out.join("\n");
 }
@@ -2084,6 +2161,23 @@ function posterCss() {
       color: var(--muted);
     }
     .only-served.many { flex-wrap: wrap; }
+    .dwell-tag {
+      margin-left: 0.28em;
+      color: var(--muted);
+      font-style: normal;
+      font-weight: 400;
+    }
+    .layover-note {
+      display: block;
+      margin-top: 2px;
+      font-style: italic;
+      font-weight: 400;
+      font-size: 9px;
+      line-height: 1.35;
+      color: var(--muted);
+      white-space: normal;
+    }
+    .dwell-not { font-style: italic; font-weight: 400; text-decoration: underline; }
     .only-led {
       display: inline-flex;
       align-items: center;
