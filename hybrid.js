@@ -379,7 +379,7 @@ function headingNote(h) {
   if (note && note.type === "headsign") {
     const sign = String(note.headsign || "").trim();
     if (!sign) return "";
-    return `Italicized trips follow the same route but operate under the headsign <span class="note-led">${escapeText(sign)}</span>.`;
+    return `<span class="note-ul">Underlined</span> trips follow the same route but operate under the headsign <span class="note-led">${escapeText(sign)}</span>.`;
   }
   if (note && note.type === "terminus") {
     return `*${escapeText(note.lead || "")}<span class="term-name">${escapeText(note.stopName || "")}</span> (Stop #${escapeText(note.stopCode || "")}).`;
@@ -1162,7 +1162,8 @@ function renderHybridHtml(opts) {
 }
     .roll-suffix { display: none; }
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
-    .tbox.via { font-style: italic; }
+    .tbox.via { text-decoration: underline; }
+    .note-ul { text-decoration: underline; }
     .tbox.added, tr.data.added td, .hy-block.added .hy-line { background: #d8f3dc; }
     .tbox.removed, tr.data.removed td, .hy-block.removed .hy-line { background: #ffd6d6; }
     .tbox.moved, tr.data.moved td, td.moved { background: #fff3b0; }
@@ -2093,6 +2094,7 @@ const FIT_SCRIPT = `
     node.setAttribute("font-size", String(fontSize));
     node.setAttribute("font-weight", weight);
     node.setAttribute("font-style", cs.fontStyle || "normal");
+    if (box.classList.contains("via")) node.setAttribute("text-decoration", "underline");
     node.setAttribute("font-variant-numeric", "tabular-nums");
     node.textContent = text;
     svg.appendChild(node);
