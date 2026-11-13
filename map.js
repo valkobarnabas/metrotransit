@@ -299,6 +299,7 @@ function fillRouteFilter() {
     routes.map((route) => `<option value="${escapeText(route.n)}">${escapeText(route.n)}${route.s ? " extra" : ""}</option>`)
   );
   routeFilterEl.innerHTML = options.join("");
+  routeFilterEl.value = NON_SCHOOL;
   routeFilterEl.disabled = false;
 }
 
@@ -567,7 +568,7 @@ clearEl.addEventListener("click", () => {
   resultsEl.hidden = true;
   resultsEl.innerHTML = "";
   clearAddressPin();
-  if (routeFilterEl) routeFilterEl.value = "";
+  if (routeFilterEl) routeFilterEl.value = NON_SCHOOL;
   if (shelterEl) shelterEl.checked = false;
   if (multiEl) multiEl.checked = false;
   if (jurListEl) jurListEl.querySelectorAll("input").forEach((box) => { box.checked = true; });
@@ -604,7 +605,7 @@ Promise.all([loadGzipJson("data/served.json.gz"), fetch("data/stop-meta.json").t
     for (const stop of stops) hookMarker(stop);
     fillRouteFilter();
     fillJurisdictions();
-    updateStopCount();
+    applyRouteFilter();
     qEl.disabled = false;
     qEl.focus();
     statusEl.textContent = "";

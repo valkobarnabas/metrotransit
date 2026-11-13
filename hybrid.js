@@ -1044,7 +1044,9 @@ function renderHybridHtml(opts) {
       margin: 0 0 5px;
       text-decoration: none;
       line-height: 1;
+      white-space: nowrap;
     }
+    .daytext { white-space: nowrap; }
     .dayhead.mf { font-weight: 800; }
     .dayhead.wknd { font-style: italic; font-weight: 400; }
     .daymarks { display: none; align-items: center; gap: 3px; }
@@ -1448,9 +1450,9 @@ function renderHybridHtml(opts) {
     ${diff ? "" : `<button type="button" id="print-poster">Print/Save as PDF</button>`}
     <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
     <label id="cute-label" hidden><input type="checkbox" id="cute-mode" checked /> Cute mode</label>
-    <label id="day-line-label"><input type="checkbox" id="day-line" checked /> Day per line</label>
-    <label id="day-marks-label"><input type="checkbox" id="day-marks" /> Day chips</label>
-    <label id="route-line-label"><input type="checkbox" id="route-line" /> One route per line</label>
+    <label id="day-line-label" hidden><input type="checkbox" id="day-line" checked /> Day per line</label>
+    <label id="day-marks-label" hidden><input type="checkbox" id="day-marks" /> Day chips</label>
+    <label id="route-line-label" hidden><input type="checkbox" id="route-line" /> One route per line</label>
     <span class="hint" id="page-count">Measuring size…</span>
   </div>
   <article class="sheet" style="--route:${escapeText(color)};--route-ink:${escapeText(ink)}">
@@ -1617,15 +1619,19 @@ const FIT_SCRIPT = `
     var labW = lab ? lab.getBoundingClientRect().width : 0;
     var gap = parseFloat(getComputedStyle(col).columnGap) || 0;
     var head = col.querySelector(".dayhead");
-    var headW = head ? head.scrollWidth : 0;
+    var headW = 0;
+    if (head) {
+      var prevWhite = head.style.whiteSpace;
+      head.style.whiteSpace = "nowrap";
+      headW = head.scrollWidth;
+      head.style.whiteSpace = prevWhite;
+    }
     return { width: Math.max(headW, labW + gap + boxesW), minBox: minBox };
   }
   function packDays(sheet) {
-    var line = document.getElementById("day-line");
-    var marks = document.getElementById("day-marks");
-    var stacked = !!(line && line.checked);
-    sheet.classList.toggle("day-line", stacked);
-    sheet.classList.toggle("day-marks", !!(marks && marks.checked));
+    var stacked = true;
+    sheet.classList.add("day-line");
+    sheet.classList.remove("day-marks");
     var groups = sheet.querySelectorAll(".days");
     var g, i;
     for (g = 0; g < groups.length; g++) {
@@ -2328,13 +2334,10 @@ const FIT_SCRIPT = `
     var hosts = pairHosts(sheet);
     var flow = sheet.querySelector(".flow");
     var pageW = flow ? flow.getBoundingClientRect().width : 0;
-    var solo = document.getElementById("route-line");
-    var ownLine = !!(solo && solo.checked);
     var h;
     for (h = 0; h < hosts.length; h++) {
       var host = hosts[h];
       flattenPairs(host);
-      if (ownLine) continue;
       var hostW = host.getBoundingClientRect().width || pageW;
       var half = hostW / 2 - 0.1 * inchPx();
       if (half > 0) pairNarrow(host, half);
@@ -2919,6 +2922,21 @@ function diffPosters(currPosters, prevPosters, currPack, prevPack, currFeed, pre
   return out;
 }
 
+function sheetBadge(poster, posters) {
+  const code = String((poster && (poster.titleCode || poster.routeName)) || "");
+  const parts = S && S.boardParts ? S.boardParts(code) : { base: code, variant: "" };
+  const base = parts.base || (poster && poster.routeName) || code;
+  const variants = new Set();
+  for (const other of posters || []) {
+    const otherCode = String(other.titleCode || other.routeName || "");
+    const parsed = S && S.boardParts ? S.boardParts(otherCode) : { base: otherCode, variant: "" };
+    if (String(parsed.base || "").toUpperCase() !== String(base).toUpperCase()) continue;
+    if (parsed.variant) variants.add(String(parsed.variant));
+  }
+  if (variants.size > 1 && parts.variant) return code;
+  return base;
+}
+
 function generate(part) {
   if (part === "timetable" || part === "stops" || part === "both") lastPart = part;
   showErr("");
@@ -3003,7 +3021,7 @@ function generate(part) {
               ...posterOpts,
               headings: headingsForPoster(headings, poster, posters),
               posters: [poster],
-              badgeNames: [poster.titleCode || poster.routeName],
+              badgeNames: [sheetBadge(poster, posters)],
             })
           )
         )
