@@ -180,7 +180,7 @@ function showPicked(stop) {
   routesEl.innerHTML = routeList
     .map(
       (r, i) =>
-        `<label><input type="radio" name="hybrid-route" data-route="${escapeText(r.n)}"${i === first ? " checked" : ""} /> <span class="pill" style="background:${r.c};color:${r.t}">${escapeText(r.n)}</span>${r.s ? " extra" : ""}</label>`
+        `<label><input type="checkbox" data-route="${escapeText(r.n)}"${i === first ? " checked" : ""} /> <span class="pill" style="background:${r.c};color:${r.t}">${escapeText(r.n)}</span>${r.s ? " extra" : ""}</label>`
     )
     .join("");
   syncRouteChecks();
@@ -285,9 +285,64 @@ function boxesHtml(deps, kind) {
     const clock = inner.replace(/<span class="roll-suffix">am<\/span>/, "");
     const suffix = kind === "roll" ? ' data-suffix="am"' : "";
     const ch = dep.change ? ` ${escapeText(dep.change)}` : "";
+    const via = dep.noteStar ? " via" : "";
     const tip = dep.tip ? ` data-tip="${escapeText(dep.tip)}"` : "";
-    return `<span class="tbox ${kind}${ch}"${tip}><span class="tink" data-clock="${clock}"${suffix}><span class="tink-src">${inner}</span></span></span>`;
+    return `<span class="tbox ${kind}${via}${ch}"${tip}><span class="tink" data-clock="${clock}"${suffix}><span class="tink-src">${inner}</span></span></span>`;
   }).join("");
+}
+
+const DAY_WORD = { Mon: "MON", Tue: "TUE", Wed: "WED", Thu: "THU", Fri: "FRI", Sat: "SAT", Sun: "SUN" };
+const DAY_KEYS = {
+  weekday: ["Mon", "Tue", "Wed", "Thu", "Fri"],
+  weekend: ["Sat", "Sun"],
+  frisat: ["Fri", "Sat"],
+  mt: ["Mon", "Tue", "Wed", "Thu"],
+  sunthu: ["Sun", "Mon", "Tue", "Wed", "Thu"],
+  daily: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  mon: ["Mon"],
+  tue: ["Tue"],
+  wed: ["Wed"],
+  thu: ["Thu"],
+  fri: ["Fri"],
+  sat: ["Sat"],
+  sun: ["Sun"],
+  friday: ["Fri"],
+  saturday: ["Sat"],
+  sunday: ["Sun"],
+};
+const BESIDE_MAX = 5;
+
+function columnDays(col) {
+  if (col && col.days && col.days.length) return col.days;
+  const named = DAY_KEYS[String((col && col.key) || "")];
+  return named ? named.slice() : [];
+}
+
+function dayMarksHtml(col) {
+  const marks = columnDays(col)
+    .map((day) => {
+      const end = day === "Sat" || day === "Sun" ? " end" : "";
+      return `<span class="daymark${end}">${DAY_WORD[day] || escapeText(day)}</span>`;
+    })
+    .join("");
+  const night = isNightOnlyColumn(col) ? `<span class="daynight">Night</span>` : "";
+  return `<span class="daymarks">${marks}${night}</span>`;
+}
+
+function columnBoxCount(columns) {
+  return (columns || []).reduce((n, col) => n + uniqDeps(col.deps).length, 0);
+}
+
+function tuckColumns(columns) {
+  if (!columns || columns.length !== 4) return null;
+  const by = new Map(columns.map((col) => [String(col.key || ""), col]));
+  const mt = by.get("mt");
+  const fri = by.get("fri") || by.get("friday");
+  const sat = by.get("sat") || by.get("saturday");
+  const sun = by.get("sun") || by.get("sunday");
+  if (!mt || !fri || !sat || !sun) return null;
+  if (uniqDeps(sat.deps).length !== 1 || uniqDeps(sun.deps).length !== 1) return null;
+  return [mt, sat, fri, sun];
 }
 
 function dayColumnHtml(col) {
@@ -301,17 +356,12 @@ function dayColumnHtml(col) {
   const mf = col.key === "weekday" ? " mf" : "";
   const lastAm = am.length ? Number(am[am.length - 1].hh) * 60 + (Number(am[am.length - 1].mm) || 0) : "";
   const firstPm = pm.length ? Number(pm[0].hh) * 60 + (Number(pm[0].mm) || 0) : "";
+  const marked = { ...col, deps };
   return `<div class="daycol" data-last-am="${lastAm}" data-first-pm="${firstPm}">
-    <div class="dayhead${wknd}${mf}">${escapeText(columnDayLabel({ ...col, deps }))}</div>
+    <div class="dayhead${wknd}${mf}"><span class="daytext">${escapeText(columnDayLabel(marked))}</span>${dayMarksHtml(marked)}</div>
     ${amInner ? `<div class="boxes am-set">${amInner}</div>` : ""}
     ${pmInner ? `<div class="boxes pm-set">${pmInner}</div>` : ""}
   </div>`;
-}
-
-function extraHeadsign(h) {
-  const note = h && h.destNote;
-  if (!note || note.type !== "headsign") return "";
-  return String(note.headsign || "").trim();
 }
 
 function hideTerminusNote(h) {
@@ -324,15 +374,19 @@ function hideTerminusNote(h) {
 }
 
 function headingNote(h) {
-  if (extraHeadsign(h) || hideTerminusNote(h)) return "";
+  if (hideTerminusNote(h)) return "";
   const note = h.destNote;
-  if (note && note.type === "headsign") return `*${note.lead || ""}${note.headsign || ""}.`;
+  if (note && note.type === "headsign") {
+    const sign = String(note.headsign || "").trim();
+    if (!sign) return "";
+    return `Italicized trips follow the same route but operate under the headsign <span class="note-led">${escapeText(sign)}</span>.`;
+  }
   if (note && note.type === "terminus") {
-    return `*${note.lead || ""}${note.stopName || ""} (Stop #${note.stopCode || ""}).`;
+    return `*${escapeText(note.lead || "")}<span class="term-name">${escapeText(note.stopName || "")}</span> (Stop #${escapeText(note.stopCode || "")}).`;
   }
   const foot = String(h.destFootnote || "");
   if (/JUNCTION VIA HIGH CROSSING/i.test(foot)) return "";
-  if (foot) return `*${foot}`;
+  if (foot) return `*${escapeText(foot)}`;
   return "";
 }
 
@@ -391,8 +445,37 @@ function headingMatchesPoster(heading, poster) {
   return posterDestSet(poster).has(dest);
 }
 
-function headingsForPoster(headings, poster) {
-  return (headings || []).filter((heading) => headingMatchesPoster(heading, poster));
+function titleVariant(poster) {
+  if (!S || !S.boardParts) return null;
+  const variant = S.boardParts(poster.titleCode || "").variant;
+  if (!variant) return null;
+  const n = Number(variant);
+  return Number.isFinite(n) ? n : null;
+}
+
+function isPrimaryVariantPoster(poster, posters) {
+  const route = String(poster.routeName || "").toLowerCase();
+  const dir = String(poster.dirId || "");
+  const mates = (posters || []).filter(
+    (p) => String(p.routeName || "").toLowerCase() === route && String(p.dirId || "") === dir && titleVariant(p) != null
+  );
+  if (!mates.length) return true;
+  return mates.reduce((best, p) => (titleVariant(p) < titleVariant(best) ? p : best)) === poster;
+}
+
+function headingsForPoster(headings, poster, posters) {
+  const route = String(poster.routeName || "").toLowerCase();
+  const primary = isPrimaryVariantPoster(poster, posters || [poster]);
+  const numbered = (posters || []).some(
+    (p) => String(p.routeName || "").toLowerCase() === route && String(p.dirId || "") === String(poster.dirId || "") && titleVariant(p) != null
+  );
+  return (headings || []).filter((heading) => {
+    if (String(heading.routeShortName || "").toLowerCase() !== route) return false;
+    const code = (heading.board && heading.board.code) || "";
+    const bare = !!(code && S && S.boardParts && !S.boardParts(code).variant);
+    if (bare && numbered && !primary) return false;
+    return headingMatchesPoster(heading, poster);
+  });
 }
 
 function combineHybridDocs(htmls) {
@@ -535,13 +618,11 @@ function routeLine(heading) {
   const code = (heading.board && heading.board.code) || heading.routeShortName || "";
   const dir = String(heading.routeDirection || "").trim();
   const dest = String((heading.board && heading.board.dest) || "").trim();
-  const also = extraHeadsign(heading);
   return `<div class="hy-head">
-    <span class="hy-line${also ? " dual" : ""}">
+    <span class="hy-line">
       <span class="hy-route">Route ${escapeText(code)}</span>
       ${dir ? `<span class="hy-dir">${escapeText(dir)}</span>` : ""}
       ${dest ? `<span class="hy-towards">towards</span><span class="hy-dest" data-text="${escapeText(dest)}">${escapeText(dest)}</span>` : ""}
-      ${also ? `<span class="hy-and">and</span><span class="hy-dest" data-text="${escapeText(also)}">${escapeText(also)}</span>` : ""}
     </span>
   </div>`;
 }
@@ -560,17 +641,21 @@ function routeFamily(name) {
 
 function timeBlockHtml(heading) {
   const columns = heading.columns || [];
+  const tucked = tuckColumns(columns);
+  const laid = tucked || columns;
   const note = headingNote(heading);
-  const cols = Math.max(1, columns.length);
+  const cols = Math.max(1, laid.length);
+  const beside = !tucked && columns.length > 1 && columnBoxCount(columns) <= BESIDE_MAX;
+  const tracks = tucked ? "max-content max-content" : `repeat(${cols}, minmax(0, 1fr))`;
   const family = routeFamily(heading.routeShortName);
   const ch = heading.change ? ` ${escapeText(heading.change)}` : "";
   const tip = heading.tip ? ` data-tip="${escapeText(heading.tip)}"` : "";
   return `<section class="hy-block${ch}" data-family="${escapeText(family)}"${tip} style="--route:${escapeText(heading.routeColor || "#333366")};--route-ink:${escapeText(heading.routeTextColor || "#ffffff")}">
     ${routeLine(heading)}
-    <div class="days" style="grid-template-columns:repeat(${cols}, minmax(0, 1fr))">
-      ${columns.map(dayColumnHtml).join("")}
+    <div class="days${beside ? " days-beside" : ""}${tucked ? " days-tuck" : ""}" style="grid-template-columns:${tracks}">
+      ${laid.map(dayColumnHtml).join("")}
     </div>
-    ${note ? `<p class="tt-note">${escapeText(note)}</p>` : ""}
+    ${note ? `<p class="tt-note">${note}</p>` : ""}
   </section>`;
 }
 
@@ -691,7 +776,7 @@ function renderHybridHtml(opts) {
   <link rel="icon" type="image/png" href="data/metrologo-mark.png" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,500;1,700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
   <style>
     :root {
       --route: ${color};
@@ -872,6 +957,10 @@ function renderHybridHtml(opts) {
     .hy-pair.tight .hy-head { font-size: calc(11.5px * var(--fit)); }
     .hy-pair.tight .hy-line { flex-wrap: nowrap; }
     .hy-pair.tight .hy-dest { font-size: calc(13px * var(--fit)); letter-spacing: round(0.08em, 1px); }
+    .hy-pair.share { justify-content: start; width: max-content; max-width: 100%; }
+    .hy-pair.share .hy-line { flex-wrap: nowrap; }
+    .hy-pair.prefix-tight .hy-dir,
+    .hy-pair.prefix-tight .hy-towards { font-size: calc(11px * var(--fit)); }
     .hy-head {
       display: flex;
       flex-wrap: wrap;
@@ -922,6 +1011,9 @@ function renderHybridHtml(opts) {
     .hy-dest svg { display: block; }
     .days { display: grid; column-gap: 0.16in; align-items: stretch; justify-content: start; }
     .sheet.day-line .days { grid-template-columns: minmax(0, 1fr); row-gap: calc(8px * var(--fit)); }
+    .sheet.day-line .days.days-beside { grid-template-columns: repeat(auto-fit, max-content); justify-content: start; column-gap: 0.16in; }
+    .days.days-tuck { row-gap: calc(8px * var(--fit)); align-items: start; justify-content: start; }
+    .sheet.day-line .days.days-tuck { grid-template-columns: max-content max-content; }
     .daycol.compact { grid-template-columns: minmax(0, 1fr); }
     .daycol.compact .boxes { width: max-content; max-width: 100%; }
     .daycol {
@@ -955,6 +1047,44 @@ function renderHybridHtml(opts) {
     }
     .dayhead.mf { font-weight: 800; }
     .dayhead.wknd { font-style: italic; font-weight: 400; }
+    .daymarks { display: none; align-items: center; gap: 3px; }
+    .sheet.day-marks .daytext { display: none; }
+    .sheet.day-marks .daymarks { display: inline-flex; }
+    .sheet.day-marks .dayhead { height: auto; font-style: normal; }
+    .daymark {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      box-sizing: border-box;
+      width: calc(26px * var(--fit));
+      height: calc(16px * var(--fit));
+      padding: 0;
+      border: 1px solid #111;
+      border-radius: 999px;
+      background: #fff;
+      color: #111;
+      font-size: calc(7.5px * var(--fit));
+      font-weight: 700;
+      font-style: normal;
+      letter-spacing: 0;
+      line-height: 1;
+      text-align: center;
+    }
+    .daymark.end { border-radius: 2px; font-weight: 500; }
+    .daynight {
+      display: inline-flex;
+      align-items: center;
+      align-self: stretch;
+      margin-left: 3px;
+      padding: 0 0 0 7px;
+      border-left: 1px solid #111;
+      font-size: calc(8px * var(--fit));
+      font-weight: 600;
+      font-style: normal;
+      letter-spacing: 0.14em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
     .band-lab {
       font-size: calc(11.5px * var(--fit));
       font-weight: 600;
@@ -1032,6 +1162,7 @@ function renderHybridHtml(opts) {
 }
     .roll-suffix { display: none; }
     .tbox.pm { background: #d9d9d9; font-weight: 700; }
+    .tbox.via { font-style: italic; }
     .tbox.added, tr.data.added td, .hy-block.added .hy-line { background: #d8f3dc; }
     .tbox.removed, tr.data.removed td, .hy-block.removed .hy-line { background: #ffd6d6; }
     .tbox.moved, tr.data.moved td, td.moved { background: #fff3b0; }
@@ -1317,6 +1448,7 @@ function renderHybridHtml(opts) {
     <label id="fit-label" hidden><input type="checkbox" id="fit-page"${fit ? " checked" : ""} /> Attempt to fit to page</label>
     <label id="cute-label" hidden><input type="checkbox" id="cute-mode" checked /> Cute mode</label>
     <label id="day-line-label"><input type="checkbox" id="day-line" checked /> Day per line</label>
+    <label id="day-marks-label"><input type="checkbox" id="day-marks" /> Day chips</label>
     <label id="route-line-label"><input type="checkbox" id="route-line" /> One route per line</label>
     <span class="hint" id="page-count">Measuring size…</span>
   </div>
@@ -1489,16 +1621,44 @@ const FIT_SCRIPT = `
   }
   function packDays(sheet) {
     var line = document.getElementById("day-line");
+    var marks = document.getElementById("day-marks");
     var stacked = !!(line && line.checked);
     sheet.classList.toggle("day-line", stacked);
+    sheet.classList.toggle("day-marks", !!(marks && marks.checked));
     var groups = sheet.querySelectorAll(".days");
     var g, i;
-    if (stacked) {
-      for (g = 0; g < groups.length; g++) groups[g].style.gridTemplateColumns = "minmax(0, 1fr)";
-      return;
-    }
     for (g = 0; g < groups.length; g++) {
       var days = groups[g];
+      if (days.classList.contains("days-tuck")) {
+        var tuckCols = days.querySelectorAll(":scope > .daycol");
+        var tuckInfo = [];
+        var leftW = 0;
+        var rightW = 0;
+        for (i = 0; i < tuckCols.length; i++) tuckInfo.push(dayNatural(tuckCols[i]));
+        for (i = 0; i < tuckCols.length; i++) {
+          tuckCols[i].classList.add("compact");
+          var tuckBoxes = tuckCols[i].querySelectorAll(":scope > .boxes");
+          var tb, tCount, tKids, tk;
+          for (tb = 0; tb < tuckBoxes.length; tb++) {
+            if (tuckBoxes[tb].classList.contains("roll-row")) continue;
+            tCount = 0;
+            tKids = tuckBoxes[tb].children;
+            for (tk = 0; tk < tKids.length; tk++) if (tKids[tk].classList.contains("tbox")) tCount++;
+            if (!tCount) continue;
+            tuckBoxes[tb].style.setProperty("--box", tuckInfo[i].minBox + "px");
+            tuckBoxes[tb].style.gridTemplateColumns = "repeat(" + tCount + ", " + tuckInfo[i].minBox + "px)";
+            tuckBoxes[tb].style.width = "max-content";
+          }
+          if (i % 2 === 0) leftW = Math.max(leftW, tuckInfo[i].width);
+          else rightW = Math.max(rightW, tuckInfo[i].width);
+        }
+        days.style.gridTemplateColumns = Math.ceil(leftW) + "px " + Math.ceil(rightW) + "px";
+        continue;
+      }
+      if (stacked && !days.classList.contains("days-beside")) {
+        days.style.gridTemplateColumns = "minmax(0, 1fr)";
+        continue;
+      }
       var cols = days.querySelectorAll(":scope > .daycol");
       if (cols.length < 2) continue;
       var gap = parseFloat(getComputedStyle(days).columnGap) || 0;
@@ -1932,6 +2092,7 @@ const FIT_SCRIPT = `
     node.setAttribute("font-family", family);
     node.setAttribute("font-size", String(fontSize));
     node.setAttribute("font-weight", weight);
+    node.setAttribute("font-style", cs.fontStyle || "normal");
     node.setAttribute("font-variant-numeric", "tabular-nums");
     node.textContent = text;
     svg.appendChild(node);
@@ -1966,19 +2127,35 @@ const FIT_SCRIPT = `
     }
     sizeKey(sheet);
   }
-  function blockNatural(block) {
+  function blockNatural(block, tight) {
     var cols = block.querySelectorAll(":scope > .days > .daycol");
     var daysEl = block.querySelector(":scope > .days");
     var gap = daysEl ? parseFloat(getComputedStyle(daysEl).columnGap) || 0 : 0;
     var w = 0;
     var i;
-    for (i = 0; i < cols.length; i++) {
-      w += dayNatural(cols[i]).width;
-      if (i) w += gap;
+    if (daysEl && daysEl.classList.contains("days-tuck") && cols.length >= 4) {
+      var rowA = dayNatural(cols[0]).width + gap + dayNatural(cols[1]).width;
+      var rowB = dayNatural(cols[2]).width + gap + dayNatural(cols[3]).width;
+      w = Math.max(rowA, rowB);
+    } else {
+      for (i = 0; i < cols.length; i++) {
+        w += dayNatural(cols[i]).width;
+        if (i) w += gap;
+      }
     }
     var head = block.querySelector(".hy-line");
     var headW = 0;
     if (head) {
+      var dir = head.querySelector(".hy-dir");
+      var towards = head.querySelector(".hy-towards");
+      var prevDir = dir ? dir.style.fontSize : "";
+      var prevTowards = towards ? towards.style.fontSize : "";
+      if (tight) {
+        var fit = parseFloat(getComputedStyle(block).getPropertyValue("--fit")) || 1;
+        var size = (11 * fit) + "px";
+        if (dir) dir.style.fontSize = size;
+        if (towards) towards.style.fontSize = size;
+      }
       var prev = head.style.whiteSpace;
       var prevWrap = head.style.flexWrap;
       var prevWidth = head.style.width;
@@ -1992,19 +2169,10 @@ const FIT_SCRIPT = `
       head.style.flexWrap = prevWrap;
       head.style.width = prevWidth;
       head.style.flex = prevFlex;
+      if (dir) dir.style.fontSize = prevDir;
+      if (towards) towards.style.fontSize = prevTowards;
     }
     return Math.max(w, headW);
-  }
-  function campusTight(a, b) {
-    function dests(block) {
-      var nodes = block.querySelectorAll(".hy-dest");
-      var s = "";
-      var i;
-      for (i = 0; i < nodes.length; i++) s += " " + nodes[i].textContent;
-      return s.toUpperCase();
-    }
-    var text = dests(a) + " " + dests(b);
-    return text.indexOf("SEGOE") >= 0 && text.indexOf("EAST CAMPUS VIA HIGH CROSSING") >= 0;
   }
   function pairHosts(sheet) {
     var flow = sheet.querySelector(".flow");
@@ -2056,15 +2224,38 @@ const FIT_SCRIPT = `
       }
       var b = j < nodes.length ? nodes[j] : null;
       var sameFamily = b && a.getAttribute("data-family") && a.getAttribute("data-family") === b.getAttribute("data-family");
-      if (b && b.classList.contains("hy-block") && sameFamily && blockNatural(a) <= half && blockNatural(b) <= half) {
-        var pair = document.createElement("div");
-        pair.className = campusTight(a, b) ? "hy-pair tight" : "hy-pair";
-        host.insertBefore(pair, a);
-        pair.appendChild(a);
-        if (rule) rule.remove();
-        pair.appendChild(b);
-        i = j + 1;
-        continue;
+      if (b && b.classList.contains("hy-block") && sameFamily) {
+        var hostW = host.getBoundingClientRect().width;
+        var seam = 0.1 * inchPx();
+        var slack = 8;
+        var aW = blockNatural(a, false);
+        var bW = blockNatural(b, false);
+        var mode = "";
+        if (aW <= half && bW <= half) mode = "half";
+        else if (hostW > 0 && aW + bW + seam + slack <= hostW + 1) mode = "share";
+        else {
+          var aT = blockNatural(a, true);
+          var bT = blockNatural(b, true);
+          if (hostW > 0 && aT + bT + seam + slack <= hostW + 1) {
+            mode = "prefix";
+            aW = aT;
+            bW = bT;
+          }
+        }
+        if (mode) {
+          var pair = document.createElement("div");
+          pair.className = "hy-pair" + (mode === "prefix" ? " prefix-tight" : "");
+          if (mode !== "half") {
+            pair.classList.add("share");
+            pair.style.gridTemplateColumns = Math.ceil(aW + slack / 2) + "px " + Math.ceil(bW + seam + slack / 2) + "px";
+          }
+          host.insertBefore(pair, a);
+          pair.appendChild(a);
+          if (rule) rule.remove();
+          pair.appendChild(b);
+          i = j + 1;
+          continue;
+        }
       }
       i += 1;
     }
@@ -2359,6 +2550,8 @@ const FIT_SCRIPT = `
   if (fit) fit.addEventListener("change", apply);
   var dayLine = document.getElementById("day-line");
   if (dayLine) dayLine.addEventListener("change", apply);
+  var dayMarks = document.getElementById("day-marks");
+  if (dayMarks) dayMarks.addEventListener("change", apply);
   var routeLine = document.getElementById("route-line");
   if (routeLine) routeLine.addEventListener("change", apply);
   if (document.readyState !== "complete") window.addEventListener("load", apply);
@@ -2806,7 +2999,7 @@ function generate(part) {
           posters.map((poster) =>
             renderHybridHtml({
               ...posterOpts,
-              headings: headingsForPoster(headings, poster),
+              headings: headingsForPoster(headings, poster, posters),
               posters: [poster],
               badgeNames: [poster.titleCode || poster.routeName],
             })
@@ -2968,6 +3161,17 @@ function openFromQuery() {
     return;
   }
   showPicked(stop);
+  const route = params.get("route");
+  if (route) {
+    const want = new Set(
+      route
+        .split(",")
+        .map((s) => s.trim().toLowerCase())
+        .filter(Boolean)
+    );
+    for (const input of routeInputs()) input.checked = want.has(String(input.dataset.route).toLowerCase());
+    syncRouteChecks();
+  }
   generate(part === "timetable" || part === "stops" ? part : "both");
 }
 

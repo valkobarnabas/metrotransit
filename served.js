@@ -428,7 +428,7 @@ function posterKeyGroups(instances, routeByName) {
             dirId,
             titleCode: `${parts.base}${v}`,
             familyBase: parts.base,
-            instances: numbered.get(v).concat(parent),
+            instances: v === variants[0] ? numbered.get(v).concat(parent) : numbered.get(v),
           });
         }
       } else {
@@ -1513,8 +1513,9 @@ function rowsHtml(rows, originCode, posterRouteName, radius, pack, locations, ex
       <td class="${cls("xf", "xf")}"${tip(ch.xfTip)}>${transfersHtml(xfer, geo)}</td>
     </tr>`);
     };
-    pushRow(idx, row.minutes, layover ? "[arrival]" : "", ch.minTip, "");
-    if (layover) pushRow("", row.departMinutes, "[departure]", "", layoverNoteHtml(row.layoverSkip, row.layoverDwell));
+    const hold = layover ? layoverNoteHtml(row.layoverSkip, row.layoverDwell) : "";
+    pushRow(idx, row.minutes, layover ? "[arrival]" : "", ch.minTip, hold);
+    if (layover) pushRow("", row.departMinutes, "[departure]", "", "");
   }
   return out.join("\n");
 }
