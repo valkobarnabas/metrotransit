@@ -1424,7 +1424,7 @@ function renderHybridHtml(opts) {
       font-weight: 500;
       line-height: 1;
     }
-    .key-sample span { transform: translateY(1px); }
+    .key-sample span { transform: translateY(-0.01px); }
     .key-sample.pm { background: #d9d9d9; font-weight: 700; }
     footer.notes {
       margin-top: calc(16px * var(--fit));
