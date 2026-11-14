@@ -454,7 +454,13 @@ function typicalServiceIds(calendar, calDates, feed) {
 
 function timesEqual(a, b) {
   if (a.length !== b.length) return false;
-  return a.every((r, i) => r.hh === b[i].hh && r.mm === b[i].mm);
+  return a.every(
+    (r, i) =>
+      r.hh === b[i].hh &&
+      r.mm === b[i].mm &&
+      !!r.noteStar === !!b[i].noteStar &&
+      !!r.sessionOnly === !!b[i].sessionOnly
+  );
 }
 
 function serviceDayFlags(calendarRow) {
@@ -559,8 +565,11 @@ const CLOSE_TERMINUS_PAIRS = [
   },
 ];
 
-/** Westbound A: East Springs through Junction, plus High Crossing at E Springs (#9624). */
+/** Westbound A from High Crossing at Cross Hill through Junction, including High Crossing at E Springs (#9624). */
 const A_WESTBOUND_FROM_HIGH_CROSSING_E_SPRINGS = new Set([
+  "9822",
+  "9138",
+  "9260",
   "9624",
   "10137",
   "10133",
